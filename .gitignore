@@ -12,9 +12,9 @@ env/
 
 # Financial fixtures/PDF dumps
 *.pdf
-fixtures/
-data/
+tests/fixtures/private/
 dumps/
+data/
 
 # IDEs and OS files
 .vscode/

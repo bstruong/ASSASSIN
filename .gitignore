@@ -1,0 +1,22 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+.env
+
+# Financial fixtures/PDF dumps
+*.pdf
+fixtures/
+data/
+dumps/
+
+# IDEs and OS files
+.vscode/
+.idea/
+.DS_Store

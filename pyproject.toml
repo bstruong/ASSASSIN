@@ -1,0 +1,29 @@
+[project]
+name = "assassin"
+version = "0.1.0"
+description = "ASSASSIN - local financial document intelligence pipeline. Zero PII egress."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "pydantic>=2.0",
+    "pdfplumber>=0.11.0",
+    "uvicorn>=0.30.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+strict = true
+filterwarnings = ["error"]

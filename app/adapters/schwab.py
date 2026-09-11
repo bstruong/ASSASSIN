@@ -180,10 +180,67 @@ class SchwabAdapter(StatementAdapter):
             NotImplementedError: Extraction logic is not yet
                 implemented.
         """
-        raise NotImplementedError(
-            "SchwabAdapter._extract_summary() is not yet implemented. "
-            "Add regex patterns to locate the account number, period dates, "
-            "and opening/closing balances on page 1."
+        import re
+        import datetime
+
+        first_page_text: str = pdf.pages[0].extract_text() or ""
+
+        # 1. Extract Account number
+        # Matches patterns like "Account Number ****1234" or "Account Number: XXXX-1234"
+        account_match = re.search(r"Account(?: Number)?[:\s]+([*X\d-]+)", first_page_text, re.IGNORECASE)
+        if not account_match:
+            raise ValueError("Could not locate account number on page1.")
+        account_number_masked = account_match.group(1)
+
+        # 2. Extract Statement Period dates
+        # Matches patterns like "Statement Period 08/01/25 to 08/31/25" or "08/01/2025 - 08/31/2025"
+        date_match = re.search(
+           r"Statement Period.*?(\d{1,2}/\d{1,2}/\d{2,4})\s*(?:-|to)\s*(\d{1,2}/\d{1,2}/\d{2,4})", 
+           first_page_text,
+           re.IGNORECASE | re.DOTALL
+        )
+        if not date_match:
+            raise ValueError("Could not locate statement period dates on page 1.")
+
+        def parse_date(date_str: str) -> datetime.date:
+            for fmt in ("%m/%d/%Y", "%m/%d/%y"):
+                try:
+                    return datetime.datetime.strptime(date_str, fmt).date()
+                except ValueError:
+                    pass
+            raise ValueError(f"Could not parse date format: {date_str}")
+
+        period_start = parse_date(date_match.group(1))
+        period_end = parse_date(date_match.group(2))
+
+        # 3. Extract Opening and Closing Cash Balances
+        # Matches patterns like "Beginning Balance $10,000.00" or "Starting Cash Balance: 10,000.00"
+        start_match = re.search(
+            r"(?:Beginning|Starting)(?: Cash)? Balance[^$\d]*([$]?-?[\d,]+\.\d{2})",
+            first_page_text,
+            re.IGNORECASE
+        )
+        if not start_match:
+            raise ValueError("Could not locate starting balance on page 1.")
+
+        end_match = re.search(
+            r"(?:Ending|Closing)(?: Cash)? Balance[^$\d]*([$]?-?[\d,]+\.\d{2})",
+            first_page_text,
+            re.IGNORECASE
+        )
+        if not end_match:
+            raise ValueError("Could not locate ending balance on page 1.")
+
+        # Re-use the existing _parse_cents helper to cleanly handle '$', ',', and sign conversions
+        start_balance_cents = self._parse_cents(start_match.group(1))
+        end_balance_cents = self._parse_cents(end_match.group(1))
+
+        return StatementSummary(
+            account_number_masked=account_number_masked,
+            period_start=period_start,
+            period_end=period_end,
+            start_balance_cents=start_balance_cents,
+            end_balance_cents=end_balance_cents
         )
 
     # ------------------------------------------------------------------
@@ -261,7 +318,56 @@ class SchwabAdapter(StatementAdapter):
                 zero-cent value.
             NotImplementedError: Parsing logic is not yet implemented.
         """
-        raise NotImplementedError(
-            "SchwabAdapter._parse_cents() is not yet implemented. "
-            "Add string-cleaning and decimal-to-integer-cents conversion."
-        )
+
+        if not amount_str or not amount_str.strip():
+            raise ValueError("Amount string must be a non-empty string.")
+
+        cleaned = amount_str.strip()
+        
+        # Remove outer parentheses used for negative numbers
+        if cleaned.startswith("(") and cleaned.endswith(")"):
+            cleaned = cleaned[1:-1].strip()
+
+        # Strip currency symbol and commas
+        cleaned = cleaned.lstrip("$").replace(",", "").strip()
+
+        # Handle negative sign if present
+        cleaned = cleaned.lstrip("-").strip()
+
+        if not cleaned:
+            raise ValueError(
+                f"Invalid currency format: '{amount_str}'"
+            )
+
+        parts = cleaned.split(".")
+        if len(parts) == 1:
+            dollars_str = parts[0]
+            cents_str = "00"
+        elif len(parts) == 2:
+            dollars_str, cents_str = parts
+            if len(cents_str) == 1:
+                cents_str = f"{cents_str}0"
+            elif len(cents_str) != 2:
+                raise ValueError(
+                    f"Invalid decimal places in: '{amount_str}'"
+                )
+        else:
+            raise ValueError(
+                    f"Multiple decimal points in: '{amount_str}'"
+            )
+
+        if not dollars_str.isdigit() or not cents_str.isdigit():
+            raise ValueError(
+                f"Non-digit numeric content in: '{amount_str}'"
+            )
+
+        total_cents = int(dollars_str) * 100 + int(cents_str)
+
+        if total_cents <= 0:
+            raise ValueError(
+                f"Parsed amount must be positive, got: {total_cents}"
+            )
+
+        return total_cents
+
+

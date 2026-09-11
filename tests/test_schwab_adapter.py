@@ -267,14 +267,35 @@ class TestSchwabAdapterWiring:
         with pytest.raises(FileNotFoundError):
             adapter.parse(tmp_path / "nonexistent.pdf")  # type: ignore[arg-type]
 
-    def test_extract_summary_stub_raises(self) -> None:
-        """_extract_summary() raises NotImplementedError until implemented."""
-        import pdfplumber as _pdfplumber
+    def test_extract_summary(self) -> None:
+        """_extract_summary() parses the account summary from page 1."""
+        from unittest.mock import MagicMock
+        import datetime
 
         adapter = SchwabAdapter()
-        with pytest.raises(NotImplementedError, match="_extract_summary"):
-            # Pass a mock-like object; the stub raises before touching it.
-            adapter._extract_summary(None)  # type: ignore[arg-type]
+
+        # 1. Create a mock page that returns the text our regexes expected
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = (
+            "Account Number: ****1234\n"
+            "Statement Period 08/01/25 to 08/31/25\n"
+            "Starting Cash Balance $10,000.00\n"
+            "Ending Cash Balance $13,904.25\n"
+        )
+
+        # 2. Create a mock PDF containing our page
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+
+        # 3. Execute the extraction
+        summary = adapter._extract_summary(mock_pdf)
+
+        # 4. Assert the results match our canonical model expectations
+        assert summary.account_number_masked == "****1234"
+        assert summary.period_start == datetime.date(2025, 8, 1)
+        assert summary.period_end == datetime.date(2025, 8, 31)
+        assert summary.start_balance_cents == 1000000
+        assert summary.end_balance_cents == 1390425
 
     def test_extract_transactions_stub_raises(self) -> None:
         """_extract_transactions() raises NotImplementedError until implemented."""
@@ -286,11 +307,15 @@ class TestSchwabAdapterWiring:
                 period_end=datetime.date(2025, 8, 31),
             )
 
-    def test_parse_cents_stub_raises(self) -> None:
-        """_parse_cents() raises NotImplementedError until implemented."""
+    def test_parse_cents(self) -> None:
+        """_parse_cents() converts US dollar string to postive integer cents."""
         adapter = SchwabAdapter()
-        with pytest.raises(NotImplementedError, match="_parse_cents"):
-            adapter._parse_cents("$1,234.56")
+
+        # Test standard formatting with dollar sign and commas
+        assert adapter._parse_cents("$1,234.56") == 123456
+
+        # Test without dollar sign or commas
+        assert adapter._parse_cents("500.00") == 50000
 
     def test_matches_raises_on_missing_file(self, tmp_path: pytest.TempPathFactory) -> None:
         """matches() raises FileNotFoundError for non-existent paths."""

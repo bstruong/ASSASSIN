@@ -28,6 +28,7 @@ from app.models.canonical import (
     CashTransaction,
     RawStatement,
     StatementSummary,
+    TransactionType,
 )
 from app.pipeline.validator import validate_cash_balance, validate_date_continuity
 
@@ -253,40 +254,116 @@ class SchwabAdapter(StatementAdapter):
         period_start: datetime.date,
         period_end: datetime.date,
     ) -> list[CashTransaction]:
-        """Walk the cash-transaction table(s) and build canonical records.
+        """Extract the cash transactions ledger from the statement.
 
-        Iterates over relevant pages of the PDF, locates the
-        *Cash Transactions* table using ``pdfplumber``'s table-detection
-        API, and converts each row into a
-        :class:`~app.models.canonical.CashTransaction`.
-
-        Transactions are returned sorted by date ascending.  The
-        *period_start* and *period_end* arguments are provided so that
-        year inference can be applied to dates printed without a year
-        component (common on Schwab statements).
+        Locates the transaction table, parses each row, and maps it into
+        a date-sorted list of ``CashTransaction`` instances.
 
         Args:
-            pdf: An open ``pdfplumber.PDF`` instance.
-            period_start: First day of the statement period, used for
-                year inference on date-only fields.
-            period_end: Last day of the statement period, used for year
-                inference on date-only fields.
+            pdf: The open ``pdfplumber.PDF`` instance.
+            period_start: The start date of the statement period.
+            period_end: The end date of the statement period.
 
         Returns:
-            A list of ``CashTransaction`` records sorted by date
-            ascending.
+            A list of ``CashTransaction`` records sorted by date ascending.
 
         Raises:
             ValueError: If the transaction table cannot be found, a row
                 is malformed, or a required field is missing.
-            NotImplementedError: Extraction logic is not yet
-                implemented.
         """
-        raise NotImplementedError(
-            "SchwabAdapter._extract_transactions() is not yet implemented. "
-            "Add table-detection logic to locate the Cash Transactions block "
-            "and parse each row into a CashTransaction."
-        )
+        import datetime
+
+        transactions: list[CashTransaction] = []
+        target_headers = {"date", "description", "amount"}
+
+        for page in pdf.pages:
+            # Quickly skip pages without transaction keywords
+            text = page.extract_text() or ""
+            if "Transaction" not in text and "Activity" not in text:
+                continue
+
+            # Extract all tables on the page
+            for table in page.extract_tables():
+                if not table or not table[0]:
+                    continue
+
+                # Clean and lowercase the header row
+                headers = [str(h).strip().lower() for h in table[0] if h]
+
+                # Check if this table has our minimum required columns
+                if not target_headers.issubset(set(headers)):
+                    continue
+
+                # Map the column indices dynamically
+                try:
+                    date_idx = headers.index("date")
+                    desc_idx = headers.index("description")
+                    amt_idx = headers.index("amount")
+                except ValueError:
+                    continue  # Failsafe
+
+                cat_idx = headers.index("category") if "category" in headers else None
+
+                # Process the data rows
+                for row in table[1:]:
+                    # Skip malformed or empty rows
+                    if not row or len(row) <= max(date_idx, desc_idx, amt_idx):
+                        continue
+
+                    raw_date = str(row[date_idx] or "").strip()
+                    raw_desc = str(row[desc_idx] or "").strip()
+                    raw_amt = str(row[amt_idx] or "").strip()
+
+                    # Skip empty rows or sub-headers
+                    if not raw_date or not raw_desc or not raw_amt:
+                        continue
+
+                    # 1. Parse Date
+                    txn_date = None
+                    for fmt in ("%m/%d/%Y", "%m/%d/%y"):
+                        try:
+                            txn_date = datetime.datetime.strptime(raw_date, fmt).date()
+                            break
+                        except ValueError:
+                            pass
+
+                    if not txn_date:
+                        continue  # Not a valid date row (likely a sub-header)
+
+                    # Ignore transactions strictly outside the statement period
+                    if not (period_start <= txn_date <= period_end):
+                        continue
+
+                    # 2. Determine Transaction Type (Debit/Credit)
+                    # We check the raw string for negative signs BEFORE _parse_cents strips itself
+                    is_debit = raw_amt.startswith("-") or raw_amt.startswith("(")
+                    txn_type = TransactionType.DEBIT if is_debit else TransactionType.CREDIT
+
+                    # 3. Parse Amount
+                    try:
+                        amount_cents = self._parse_cents(raw_amt)
+                    except ValueError:
+                        continue  # Malformed amount
+
+                    # 4. Extract Category (if available)
+                    category = None
+                    if cat_idx is not None and len(row) > cat_idx:
+                        category = str(row[cat_idx] or "").strip() or None
+
+                    transactions.append(
+                        CashTransaction(
+                            date=txn_date,
+                            description=raw_desc,
+                            transaction_type=txn_type,
+                            amount_cents=amount_cents,
+                            category=category,
+                        )
+                    )
+
+        # The pipeline validators demand strict chronological ordering
+        transactions.sort(key=lambda t: t.date)
+
+        return transactions
 
     # ------------------------------------------------------------------
     # Currency parsing
@@ -328,11 +405,8 @@ class SchwabAdapter(StatementAdapter):
         if cleaned.startswith("(") and cleaned.endswith(")"):
             cleaned = cleaned[1:-1].strip()
 
-        # Strip currency symbol and commas
-        cleaned = cleaned.lstrip("$").replace(",", "").strip()
-
-        # Handle negative sign if present
-        cleaned = cleaned.lstrip("-").strip()
+        # Strip currency symbol, negative sign, and commas (in any order)
+        cleaned = cleaned.lstrip("$-").replace(",", "").strip()
 
         if not cleaned:
             raise ValueError(

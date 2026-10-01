@@ -297,15 +297,41 @@ class TestSchwabAdapterWiring:
         assert summary.start_balance_cents == 1000000
         assert summary.end_balance_cents == 1390425
 
-    def test_extract_transactions_stub_raises(self) -> None:
-        """_extract_transactions() raises NotImplementedError until implemented."""
+    def test_extract_transactions(self) -> None:
+        """_extract_transactions() parses a mock transaction table."""
+        from unittest.mock import MagicMock
+
         adapter = SchwabAdapter()
-        with pytest.raises(NotImplementedError, match="_extract_transactions"):
-            adapter._extract_transactions(
-                None,  # type: ignore[arg-type]
-                period_start=datetime.date(2025, 8, 1),
-                period_end=datetime.date(2025, 8, 31),
-            )
+
+        # Build a mock page with a transaction table
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "Cash Transaction Activity"
+        mock_page.extract_tables.return_value = [
+            [
+                ["Date", "Description", "Amount"],
+                ["08/04/2025", "SCHWAB BANK INTEREST", "$3.75"],
+                ["08/20/2025", "WIRE FEE", "-$25.00"],
+            ]
+        ]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+
+        txns = adapter._extract_transactions(
+            mock_pdf,
+            period_start=datetime.date(2025, 8, 1),
+            period_end=datetime.date(2025, 8, 31),
+        )
+
+        assert len(txns) == 2
+        # Credit
+        assert txns[0].description == "SCHWAB BANK INTEREST"
+        assert txns[0].amount_cents == 375
+        assert txns[0].transaction_type == TransactionType.CREDIT
+        # Debit
+        assert txns[1].description == "WIRE FEE"
+        assert txns[1].amount_cents == 2500
+        assert txns[1].transaction_type == TransactionType.DEBIT
 
     def test_parse_cents(self) -> None:
         """_parse_cents() converts US dollar string to postive integer cents."""

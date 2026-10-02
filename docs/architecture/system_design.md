@@ -1,28 +1,3 @@
----
-name: ASSASSIN system design
-overview: "System Design Specification for multi-domain ASSASSIN: depository, revolving credit, and brokerage statements; polymorphic PostgreSQL canonical schema with integer cents; append-only raw pages/bboxes; fail-loud adapters and reconciliation."
-todos:
-  - id: taxonomy-contracts
-    content: Freeze AccountDomain, AccountType, signed primary-balance delta, and exception taxonomy (no code yet)
-    status: pending
-  - id: adapter-hierarchy
-    content: Specify StatementAdapter plus Depository, CreditCard, and Investment subclass contracts
-    status: pending
-  - id: pg-schema-spec
-    content: Specify PostgreSQL accounts, statements, sidecar summaries, transactions, and append-only raw tables (design DDL only)
-    status: pending
-  - id: recon-rules
-    content: Specify per-domain balance equations and running-balance checks
-    status: pending
-  - id: fixtures-matrix
-    content: Specify synthetic checking, savings, and card fixtures including required failure cases
-    status: pending
-  - id: impl-sequence
-    content: "Implementation order when authorized: contracts, fail-loud extract, domain adapters, persist, second institution"
-    status: pending
-isProject: false
----
-
 # ASSASSIN System Design Specification (multi-domain)
 
 **Document type:** architecture and contracts only. No application logic, Alembic revisions, or service objects are produced in this slice.

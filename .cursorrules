@@ -1,0 +1,3 @@
+The authoritative source of conventions and instructions for this repository is located in `AGENTS.md`.
+
+Please read `AGENTS.md` before making any structural, architectural, or business logic changes to ensure alignment with our core invariants.

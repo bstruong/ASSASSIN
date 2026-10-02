@@ -1,4 +1,4 @@
-"""Exception taxonomy for the ASSASSIN pipeline.
+"""Exception taxonomy for the statement processing pipeline.
 
 Every exception in this hierarchy is a **fail-loud** signal.  The
 pipeline never catches these to continue processing — they abort the
@@ -6,7 +6,7 @@ current run and leave raw rows intact with ``RunStatus.FAILED``.
 
 Hierarchy::
 
-    AssassinError (base)
+    PipelineError (base)
     ├── InvariantError         — balance recon, bucket mismatch
     ├── TokenError             — unparseable money, sign contradiction
     ├── SchemaDriftError       — extra / missing headers
@@ -18,16 +18,16 @@ Hierarchy::
 from __future__ import annotations
 
 
-class AssassinError(Exception):
-    """Base exception for all ASSASSIN pipeline errors.
+class PipelineError(Exception):
+    """Base exception for all pipeline errors.
 
     Subclasses represent specific failure modes.  Application code
-    should never catch ``AssassinError`` to suppress; it exists for
+    should never catch ``PipelineError`` to suppress; it exists for
     type hierarchy and diagnostic grouping only.
     """
 
 
-class InvariantError(AssassinError):
+class InvariantError(PipelineError):
     """A balance reconciliation or bucket-sum equation failed.
 
     Raised when:
@@ -39,7 +39,7 @@ class InvariantError(AssassinError):
     """
 
 
-class TokenError(AssassinError):
+class TokenError(PipelineError):
     """A raw token could not be interpreted or contradicts its context.
 
     Raised when:
@@ -53,7 +53,7 @@ class TokenError(AssassinError):
     """
 
 
-class SchemaDriftError(AssassinError):
+class SchemaDriftError(PipelineError):
     """The table schema does not match the adapter's declared headers.
 
     Raised when:
@@ -64,7 +64,7 @@ class SchemaDriftError(AssassinError):
     """
 
 
-class MissingSectionError(AssassinError):
+class MissingSectionError(PipelineError):
     """A mandatory section marker (anchor string) was not found.
 
     Raised when:
@@ -75,7 +75,7 @@ class MissingSectionError(AssassinError):
     """
 
 
-class AmbiguousAccountsError(AssassinError):
+class AmbiguousAccountsError(PipelineError):
     """Multiple accounts detected by a single-account adapter.
 
     Raised when:
@@ -86,7 +86,7 @@ class AmbiguousAccountsError(AssassinError):
     """
 
 
-class AdapterRegistryError(AssassinError):
+class AdapterRegistryError(PipelineError):
     """Adapter matching failed: zero or multiple adapters claimed the file.
 
     Raised when:

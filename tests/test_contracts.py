@@ -1,4 +1,4 @@
-"""Contract tests for the ASSASSIN taxonomy and exception hierarchy.
+"""Contract tests for the statement taxonomy and exception hierarchy.
 
 These tests verify the frozen contracts that every adapter, validator,
 and persistence layer depends on.  They are intentionally exhaustive:
@@ -31,7 +31,7 @@ from app.models.enums import (
 from app.models.exceptions import (
     AdapterRegistryError,
     AmbiguousAccountsError,
-    AssassinError,
+    PipelineError,
     InvariantError,
     MissingSectionError,
     SchemaDriftError,
@@ -558,9 +558,9 @@ class TestFeeSignCrossDomain:
 
 
 class TestExceptionHierarchy:
-    """All pipeline exceptions descend from AssassinError."""
+    """All pipeline exceptions descend from PipelineError."""
 
-    ALL_EXCEPTIONS: list[type[AssassinError]] = [
+    ALL_EXCEPTIONS: list[type[PipelineError]] = [
         InvariantError,
         TokenError,
         SchemaDriftError,
@@ -569,28 +569,28 @@ class TestExceptionHierarchy:
         AdapterRegistryError,
     ]
 
-    def test_assassin_error_is_exception(self) -> None:
-        assert issubclass(AssassinError, Exception)
+    def test_pipeline_error_is_exception(self) -> None:
+        assert issubclass(PipelineError, Exception)
 
     @pytest.mark.parametrize("exc_cls", ALL_EXCEPTIONS)
-    def test_subclass_of_assassin_error(
-        self, exc_cls: type[AssassinError]
+    def test_subclass_of_pipeline_error(
+        self, exc_cls: type[PipelineError]
     ) -> None:
-        assert issubclass(exc_cls, AssassinError)
+        assert issubclass(exc_cls, PipelineError)
 
     @pytest.mark.parametrize("exc_cls", ALL_EXCEPTIONS)
-    def test_not_same_as_base(self, exc_cls: type[AssassinError]) -> None:
-        assert exc_cls is not AssassinError
+    def test_not_same_as_base(self, exc_cls: type[PipelineError]) -> None:
+        assert exc_cls is not PipelineError
 
     @pytest.mark.parametrize("exc_cls", ALL_EXCEPTIONS)
-    def test_can_raise_and_catch_as_assassin_error(
-        self, exc_cls: type[AssassinError]
+    def test_can_raise_and_catch_as_pipeline_error(
+        self, exc_cls: type[PipelineError]
     ) -> None:
-        with pytest.raises(AssassinError):
+        with pytest.raises(PipelineError):
             raise exc_cls("test message")
 
     @pytest.mark.parametrize("exc_cls", ALL_EXCEPTIONS)
-    def test_preserves_message(self, exc_cls: type[AssassinError]) -> None:
+    def test_preserves_message(self, exc_cls: type[PipelineError]) -> None:
         msg = f"diagnostic detail for {exc_cls.__name__}"
         exc = exc_cls(msg)
         assert str(exc) == msg

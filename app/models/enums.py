@@ -1,4 +1,4 @@
-"""Closed enums and domain classification rules for ASSASSIN.
+"""Closed enums and domain classification rules for the statement pipeline.
 
 These types are the taxonomic foundation of the multi-domain pipeline.
 Every adapter, validator, and persistence layer references them.

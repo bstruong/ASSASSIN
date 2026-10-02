@@ -15,10 +15,10 @@ These tests verify that:
 
 from __future__ import annotations
 
-import copy
 import datetime
 
 import pytest
+from pydantic import ValidationError
 
 from app.adapters.schwab import SchwabAdapter
 from app.models.canonical import (
@@ -28,7 +28,6 @@ from app.models.canonical import (
     TransactionType,
 )
 from app.pipeline.validator import validate_cash_balance, validate_date_continuity
-
 
 # ---------------------------------------------------------------------------
 # Model deserialisation
@@ -78,7 +77,7 @@ class TestCanonicalModelParsing:
 
     def test_model_is_frozen(self, schwab_raw_statement: RawStatement) -> None:
         """Canonical models are immutable after construction."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             schwab_raw_statement.broker = "Fidelity"  # type: ignore[misc]
 
 
@@ -198,7 +197,7 @@ class TestModelStrictness:
 
     def test_float_amount_rejected(self) -> None:
         """Floating-point amounts must not be silently coerced to int."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CashTransaction(
                 date=datetime.date(2025, 8, 1),
                 description="BAD FLOAT",
@@ -208,7 +207,7 @@ class TestModelStrictness:
 
     def test_zero_amount_rejected(self) -> None:
         """Zero-cent transactions are not valid."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CashTransaction(
                 date=datetime.date(2025, 8, 1),
                 description="ZERO",
@@ -218,7 +217,7 @@ class TestModelStrictness:
 
     def test_negative_amount_rejected(self) -> None:
         """Negative amounts must be rejected (use transaction_type instead)."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CashTransaction(
                 date=datetime.date(2025, 8, 1),
                 description="NEGATIVE",
@@ -228,7 +227,7 @@ class TestModelStrictness:
 
     def test_empty_description_rejected(self) -> None:
         """Empty strings are not valid descriptions."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CashTransaction(
                 date=datetime.date(2025, 8, 1),
                 description="",
@@ -238,7 +237,7 @@ class TestModelStrictness:
 
     def test_invalid_transaction_type_rejected(self) -> None:
         """Unknown transaction types must be rejected."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CashTransaction(
                 date=datetime.date(2025, 8, 1),
                 description="UNKNOWN TYPE",
@@ -267,30 +266,81 @@ class TestSchwabAdapterWiring:
         with pytest.raises(FileNotFoundError):
             adapter.parse(tmp_path / "nonexistent.pdf")  # type: ignore[arg-type]
 
-    def test_extract_summary_stub_raises(self) -> None:
-        """_extract_summary() raises NotImplementedError until implemented."""
-        import pdfplumber as _pdfplumber
+    def test_extract_summary(self) -> None:
+        """_extract_summary() parses the account summary from page 1."""
+        import datetime
+        from unittest.mock import MagicMock
 
         adapter = SchwabAdapter()
-        with pytest.raises(NotImplementedError, match="_extract_summary"):
-            # Pass a mock-like object; the stub raises before touching it.
-            adapter._extract_summary(None)  # type: ignore[arg-type]
 
-    def test_extract_transactions_stub_raises(self) -> None:
-        """_extract_transactions() raises NotImplementedError until implemented."""
-        adapter = SchwabAdapter()
-        with pytest.raises(NotImplementedError, match="_extract_transactions"):
-            adapter._extract_transactions(
-                None,  # type: ignore[arg-type]
-                period_start=datetime.date(2025, 8, 1),
-                period_end=datetime.date(2025, 8, 31),
-            )
+        # 1. Create a mock page that returns the text our regexes expected
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = (
+            "Account Number: ****1234\n"
+            "Statement Period 08/01/25 to 08/31/25\n"
+            "Starting Cash Balance $10,000.00\n"
+            "Ending Cash Balance $13,904.25\n"
+        )
 
-    def test_parse_cents_stub_raises(self) -> None:
-        """_parse_cents() raises NotImplementedError until implemented."""
+        # 2. Create a mock PDF containing our page
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+
+        # 3. Execute the extraction
+        summary = adapter._extract_summary(mock_pdf)
+
+        # 4. Assert the results match our canonical model expectations
+        assert summary.account_number_masked == "****1234"
+        assert summary.period_start == datetime.date(2025, 8, 1)
+        assert summary.period_end == datetime.date(2025, 8, 31)
+        assert summary.start_balance_cents == 1000000
+        assert summary.end_balance_cents == 1390425
+
+    def test_extract_transactions(self) -> None:
+        """_extract_transactions() parses a mock transaction table."""
+        from unittest.mock import MagicMock
+
         adapter = SchwabAdapter()
-        with pytest.raises(NotImplementedError, match="_parse_cents"):
-            adapter._parse_cents("$1,234.56")
+
+        # Build a mock page with a transaction table
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "Cash Transaction Activity"
+        mock_page.extract_tables.return_value = [
+            [
+                ["Date", "Description", "Amount"],
+                ["08/04/2025", "SCHWAB BANK INTEREST", "$3.75"],
+                ["08/20/2025", "WIRE FEE", "-$25.00"],
+            ]
+        ]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+
+        txns = adapter._extract_transactions(
+            mock_pdf,
+            period_start=datetime.date(2025, 8, 1),
+            period_end=datetime.date(2025, 8, 31),
+        )
+
+        assert len(txns) == 2
+        # Credit
+        assert txns[0].description == "SCHWAB BANK INTEREST"
+        assert txns[0].amount_cents == 375
+        assert txns[0].transaction_type == TransactionType.CREDIT
+        # Debit
+        assert txns[1].description == "WIRE FEE"
+        assert txns[1].amount_cents == 2500
+        assert txns[1].transaction_type == TransactionType.DEBIT
+
+    def test_parse_cents(self) -> None:
+        """_parse_cents() converts US dollar string to postive integer cents."""
+        adapter = SchwabAdapter()
+
+        # Test standard formatting with dollar sign and commas
+        assert adapter._parse_cents("$1,234.56") == 123456
+
+        # Test without dollar sign or commas
+        assert adapter._parse_cents("500.00") == 50000
 
     def test_matches_raises_on_missing_file(self, tmp_path: pytest.TempPathFactory) -> None:
         """matches() raises FileNotFoundError for non-existent paths."""

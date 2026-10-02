@@ -14,15 +14,15 @@ from __future__ import annotations
 import pytest
 
 from app.models.enums import (
+    DOMAIN_ACCOUNT_TYPES,
+    DOMAIN_CATEGORIES,
+    NEGATIVE_DELTA_CATEGORIES,
+    POSITIVE_DELTA_CATEGORIES,
     AccountDomain,
     AccountType,
     CurrencyCode,
     RunStatus,
     TransactionCategory,
-    DOMAIN_ACCOUNT_TYPES,
-    DOMAIN_CATEGORIES,
-    NEGATIVE_DELTA_CATEGORIES,
-    POSITIVE_DELTA_CATEGORIES,
     domain_for_account_type,
     validate_account_type_for_domain,
     validate_category_for_domain,
@@ -31,13 +31,12 @@ from app.models.enums import (
 from app.models.exceptions import (
     AdapterRegistryError,
     AmbiguousAccountsError,
-    PipelineError,
     InvariantError,
     MissingSectionError,
+    PipelineError,
     SchemaDriftError,
     TokenError,
 )
-
 
 # =====================================================================
 # §1  Enum membership — freeze the exact set of members
@@ -560,14 +559,14 @@ class TestFeeSignCrossDomain:
 class TestExceptionHierarchy:
     """All pipeline exceptions descend from PipelineError."""
 
-    ALL_EXCEPTIONS: list[type[PipelineError]] = [
+    ALL_EXCEPTIONS: tuple[type[PipelineError], ...] = (
         InvariantError,
         TokenError,
         SchemaDriftError,
         MissingSectionError,
         AmbiguousAccountsError,
         AdapterRegistryError,
-    ]
+    )
 
     def test_pipeline_error_is_exception(self) -> None:
         assert issubclass(PipelineError, Exception)

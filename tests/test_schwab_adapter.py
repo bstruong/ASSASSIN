@@ -15,10 +15,10 @@ These tests verify that:
 
 from __future__ import annotations
 
-import copy
 import datetime
 
 import pytest
+from pydantic import ValidationError
 
 from app.adapters.schwab import SchwabAdapter
 from app.models.canonical import (
@@ -28,7 +28,6 @@ from app.models.canonical import (
     TransactionType,
 )
 from app.pipeline.validator import validate_cash_balance, validate_date_continuity
-
 
 # ---------------------------------------------------------------------------
 # Model deserialisation
@@ -78,7 +77,7 @@ class TestCanonicalModelParsing:
 
     def test_model_is_frozen(self, schwab_raw_statement: RawStatement) -> None:
         """Canonical models are immutable after construction."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             schwab_raw_statement.broker = "Fidelity"  # type: ignore[misc]
 
 
@@ -198,7 +197,7 @@ class TestModelStrictness:
 
     def test_float_amount_rejected(self) -> None:
         """Floating-point amounts must not be silently coerced to int."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CashTransaction(
                 date=datetime.date(2025, 8, 1),
                 description="BAD FLOAT",
@@ -208,7 +207,7 @@ class TestModelStrictness:
 
     def test_zero_amount_rejected(self) -> None:
         """Zero-cent transactions are not valid."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CashTransaction(
                 date=datetime.date(2025, 8, 1),
                 description="ZERO",
@@ -218,7 +217,7 @@ class TestModelStrictness:
 
     def test_negative_amount_rejected(self) -> None:
         """Negative amounts must be rejected (use transaction_type instead)."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CashTransaction(
                 date=datetime.date(2025, 8, 1),
                 description="NEGATIVE",
@@ -228,7 +227,7 @@ class TestModelStrictness:
 
     def test_empty_description_rejected(self) -> None:
         """Empty strings are not valid descriptions."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CashTransaction(
                 date=datetime.date(2025, 8, 1),
                 description="",
@@ -238,7 +237,7 @@ class TestModelStrictness:
 
     def test_invalid_transaction_type_rejected(self) -> None:
         """Unknown transaction types must be rejected."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CashTransaction(
                 date=datetime.date(2025, 8, 1),
                 description="UNKNOWN TYPE",
@@ -269,8 +268,8 @@ class TestSchwabAdapterWiring:
 
     def test_extract_summary(self) -> None:
         """_extract_summary() parses the account summary from page 1."""
-        from unittest.mock import MagicMock
         import datetime
+        from unittest.mock import MagicMock
 
         adapter = SchwabAdapter()
 

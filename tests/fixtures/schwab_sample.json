@@ -1,0 +1,48 @@
+{
+  "source_file": "schwab-stmt-2025-08.pdf",
+  "broker": "Charles Schwab",
+  "summary": {
+    "account_number_masked": "****7842",
+    "period_start": "2025-08-01",
+    "period_end": "2025-08-31",
+    "start_balance_cents": 1000000,
+    "end_balance_cents": 1390425
+  },
+  "transactions": [
+    {
+      "date": "2025-08-05",
+      "description": "Deposit",
+      "transaction_type": "credit",
+      "amount_cents": 200000,
+      "category": null
+    },
+    {
+      "date": "2025-08-10",
+      "description": "Deposit",
+      "transaction_type": "credit",
+      "amount_cents": 200000,
+      "category": null
+    },
+    {
+      "date": "2025-08-15",
+      "description": "Withdrawal",
+      "transaction_type": "debit",
+      "amount_cents": 10000,
+      "category": null
+    },
+    {
+      "date": "2025-08-20",
+      "description": "Dividend",
+      "transaction_type": "credit",
+      "amount_cents": 10000,
+      "category": null
+    },
+    {
+      "date": "2025-08-25",
+      "description": "Fee",
+      "transaction_type": "debit",
+      "amount_cents": 9575,
+      "category": null
+    }
+  ]
+}

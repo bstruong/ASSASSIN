@@ -12,11 +12,12 @@ env/
 
 # Financial fixtures/PDF dumps
 *.pdf
-fixtures/
-data/
+tests/fixtures/private/
 dumps/
+data/
 
 # IDEs and OS files
 .vscode/
 .idea/
 .DS_Store
+\n# Agent and Editor Scaffolding\n.antigravity/\n.cursor/\n*.agent.log\n.agent_cache/

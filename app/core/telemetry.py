@@ -11,6 +11,7 @@ from typing import Any
 # from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 # from opentelemetry.sdk.trace import TracerProvider
 # from opentelemetry.sdk.trace.export import BatchSpanProcessor
+logger = logging.getLogger(__name__)
 
 
 logger = logging.getLogger(__name__)

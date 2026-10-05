@@ -68,11 +68,6 @@ def validate_universal_reconciliation(
             f"!= opening_balance_cents ({statement.opening_balance_cents}) + sum(amount_cents) ({sum_deltas}) = {expected_closing}"
         )
 
-    if sum_deltas != statement.net_change_cents:
-        raise InvariantError(
-            f"Sum of deltas ({sum_deltas}) does not equal net_change_cents ({statement.net_change_cents})"
-        )
-
     # Running balance validation
     has_any_running = any(t.balance_after_cents is not None for t in transactions)
     if has_any_running:

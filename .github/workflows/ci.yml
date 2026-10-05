@@ -39,3 +39,10 @@ jobs:
 
       - name: Run test suite with strict coverage gate (>90%)
         run: uv run pytest --cov=app --cov-fail-under=90 -v
+
+      - name: Run mutation testing & quality score gate
+        run: |
+          uv run mutmut run
+          uv run mutmut export-cicd-stats
+          uv run python scripts/check_mutation_score.py --min-score 55.0
+

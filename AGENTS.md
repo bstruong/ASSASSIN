@@ -9,6 +9,7 @@ Agents must verify their work using the following commands:
 - **Lint:** `uv run ruff check .`
 - **Format Check:** `uv run ruff format --check .` (Format fix: `uv run ruff format .`)
 - **Test with Coverage Gate (>90%):** `uv run pytest --cov=app --cov-fail-under=90 -v`
+- **Mutation Testing Gate:** `uv run mutmut run && uv run mutmut export-cicd-stats && uv run python scripts/check_mutation_score.py`
 - **Agent Invariant Review:** `uv run python scripts/agent_review.py`
 
 ## Core Invariants
@@ -56,6 +57,13 @@ All feature development and adapter implementations must strictly adhere to Test
    - Any pull request dropping coverage below 90% is strictly blocked by CI (`uv run pytest --cov=app --cov-fail-under=90`).
    - Trivial tests that simply mock away validation without asserting invariant enforcement are unacceptable.
 
+5. **Mutation Testing Mandate (Killing Injected Defects):**
+   - High code coverage alone is meaningless if tests merely execute lines of code without validating outcomes. Tests must be robust enough to **kill mutations**.
+   - Agents must run mutation testing via `uv run mutmut run && uv run mutmut export-cicd-stats`.
+   - Injected mutations (such as operator inversions `<` vs `<=`, altered arithmetic signs, or deleted statements) must cause test failures.
+   - Core financial validators (such as `app/pipeline/validator.py`) enforce a **100% mutation kill rate (zero surviving mutants)**.
+   - All PRs are gated by `uv run python scripts/check_mutation_score.py --min-score 55.0` in CI.
+
 ---
 
 ## Product Manager & QA Acceptance Mandate
@@ -96,6 +104,7 @@ Before a pull request can be merged, the Reviewer Agent verifies:
 - [ ] **Strict Contract Enforcement:** No silent error suppression (`except Exception: pass`), no best-effort coercion, explicit taxonomy exceptions raised.
 - [ ] **Observability & Data Privacy:** Structured logging is configured at boundaries; no PII or financial amounts leaked.
 - [ ] **TDD & Coverage Gate:** `uv run pytest --cov=app --cov-fail-under=90` passes with >90% coverage.
+- [ ] **Mutation Testing Gate:** `mutmut` runs; zero surviving mutants in `app/pipeline/validator.py`, and global mutation score >= 55%.
 - [ ] **Code Hygiene:** `uv run ruff check .` and `uv run ruff format --check .` pass with zero warnings.
 - [ ] **QA Deliverables:** Executable QA script (`scripts/qa_*.py`) exists, runs successfully, and demonstrates both positive and negative cases.
 

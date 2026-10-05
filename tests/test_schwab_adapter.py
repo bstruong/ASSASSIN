@@ -164,6 +164,78 @@ class TestValidationFailures:
         with pytest.raises(ValueError, match="not in chronological order"):
             validate_date_continuity(bad_statement)
 
+    def test_single_day_period_valid(self) -> None:
+        """A statement where period_start == period_end is valid (not inverted)."""
+        summary = StatementSummary(
+            account_number_masked="****0000",
+            period_start=datetime.date(2025, 8, 15),
+            period_end=datetime.date(2025, 8, 15),
+            start_balance_cents=100,
+            end_balance_cents=100,
+        )
+        statement = RawStatement(
+            source_file="test.pdf",
+            broker="Test",
+            summary=summary,
+            transactions=[
+                CashTransaction(
+                    date=datetime.date(2025, 8, 15),
+                    description="SAME DAY TXN 1",
+                    transaction_type=TransactionType.CREDIT,
+                    amount_cents=50,
+                    category=None,
+                ),
+                CashTransaction(
+                    date=datetime.date(2025, 8, 15),
+                    description="SAME DAY TXN 2",
+                    transaction_type=TransactionType.DEBIT,
+                    amount_cents=50,
+                    category=None,
+                ),
+            ],
+        )
+        # Must not raise
+        validate_date_continuity(statement)
+        validate_cash_balance(statement)
+
+    def test_transaction_before_period_start_raises(
+        self, schwab_raw_statement: RawStatement
+    ) -> None:
+        """A transaction dated strictly before period_start triggers a ValueError."""
+        early_txn = CashTransaction(
+            date=schwab_raw_statement.summary.period_start - datetime.timedelta(days=1),
+            description="EARLY TRANSACTION",
+            transaction_type=TransactionType.CREDIT,
+            amount_cents=100,
+            category=None,
+        )
+        bad_statement = RawStatement(
+            source_file=schwab_raw_statement.source_file,
+            broker=schwab_raw_statement.broker,
+            summary=schwab_raw_statement.summary,
+            transactions=[early_txn, *schwab_raw_statement.transactions],
+        )
+        with pytest.raises(ValueError, match="outside the statement period"):
+            validate_date_continuity(bad_statement)
+
+    def test_balance_mismatch_includes_exact_difference(self) -> None:
+        """Verify the exception message contains the exact discrepancy calculation."""
+        summary = StatementSummary(
+            account_number_masked="****0000",
+            period_start=datetime.date(2025, 8, 1),
+            period_end=datetime.date(2025, 8, 31),
+            start_balance_cents=1000,
+            end_balance_cents=1500,  # Expected 1000, diff is -500
+        )
+        statement = RawStatement(
+            source_file="test.pdf",
+            broker="Test",
+            summary=summary,
+            transactions=[],
+        )
+        with pytest.raises(ValueError, match=r"difference: -500 cents"):
+            validate_cash_balance(statement)
+
     def test_inverted_period_raises(self) -> None:
         """A statement where period_start > period_end triggers a ValueError."""
         summary = StatementSummary(

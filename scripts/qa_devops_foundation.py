@@ -59,6 +59,11 @@ def test_agents_markdown_spec(root_dir: Path) -> None:
         "Agent-to-Agent Review Protocol" in content,
         "Documents dual-agent review roles, checklists, and automated gates.",
     )
+    assert_condition(
+        "Mutation Testing mandate documented",
+        "Mutation Testing Mandate" in content,
+        "Requires tests to actively kill synthetic mutants beyond 90% coverage.",
+    )
 
 
 def test_ci_cd_workflow(root_dir: Path) -> None:
@@ -78,6 +83,10 @@ def test_ci_cd_workflow(root_dir: Path) -> None:
     assert_condition(
         "CI executes `uv run pytest --cov=app --cov-fail-under=90 -v`",
         "--cov-fail-under=90" in content,
+    )
+    assert_condition(
+        "CI executes mutation score gate `scripts/check_mutation_score.py`",
+        "scripts/check_mutation_score.py" in content,
     )
 
 
@@ -158,6 +167,27 @@ def test_fail_loud_invariant_enforcement(root_dir: Path) -> None:
     )
 
 
+def test_mutation_testing_qa(root_dir: Path) -> None:
+    print_header("6. Mutation Testing & Test Robustness Verification")
+    qa_mutation_script = root_dir / "scripts" / "qa_mutation_testing.py"
+    assert_condition(
+        "scripts/qa_mutation_testing.py exists", qa_mutation_script.is_file()
+    )
+
+    res = subprocess.run(
+        ["uv", "run", "python", str(qa_mutation_script)],
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert_condition(
+        "qa_mutation_testing.py executed successfully and passed all gates",
+        res.returncode == 0,
+        "Mutation testing actively verifies tests kill injected mutants.",
+    )
+
+
 def main() -> int:
     root_dir = Path(__file__).resolve().parent.parent
     print("=" * 75)
@@ -171,11 +201,12 @@ def main() -> int:
         test_agent_review_workflow(root_dir)
         test_agent_review_execution(root_dir)
         test_fail_loud_invariant_enforcement(root_dir)
+        test_mutation_testing_qa(root_dir)
 
         print("\n" + "=" * 75)
         print("🏆 QA RESULT: ALL ACCEPTANCE GATES PASSED")
         print(
-            "   The DevOps, TDD, CI/CD, and Agent Review foundation is fully validated."
+            "   The DevOps, TDD, CI/CD, Agent Review, and Mutation Testing foundation is fully validated."
         )
         print("=" * 75)
         return 0

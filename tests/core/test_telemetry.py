@@ -4,7 +4,7 @@ import io
 import json
 import logging
 
-from app.core.telemetry import JSONFormatter
+from app.core.telemetry import JSONFormatter, configure_telemetry
 
 
 def test_json_formatter_strips_pii_and_financials():
@@ -88,7 +88,6 @@ def test_json_formatter_with_record_args_dict():
 
 def test_configure_telemetry(monkeypatch):
     """Ensure configure_telemetry sets root level and JSON handler."""
-    from app.core.telemetry import configure_telemetry
 
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
     configure_telemetry()

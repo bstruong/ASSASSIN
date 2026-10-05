@@ -1,64 +1,271 @@
-"""Abstract base class that every brokerage statement adapter must implement.
-
-Adapters are responsible for two concerns:
-
-1. **Detection** - given a file path, determine whether this adapter can
-   handle the document (e.g. by inspecting the first page for broker-specific
-   watermarks or layout cues).
-2. **Extraction** - parse the document into a :class:`~app.models.canonical.RawStatement`.
-
-Adapters MUST NOT silently skip or coerce malformed data.  If a field
-cannot be extracted with certainty, raise a ``ValueError`` with a
-descriptive message.
-"""
+"""Abstract base classes for statement adapters across all financial domains."""
 
 from __future__ import annotations
 
 import abc
+import datetime
+from collections.abc import Sequence
 from pathlib import Path
 
-from app.models.canonical import RawStatement
+from app.models.canonical import (
+    Account,
+    BrokerageSummary,
+    CanonicalStatement,
+    CanonicalTransaction,
+    CreditCardSummary,
+    DepositorySummary,
+    RawStatement,
+)
+from app.models.enums import AccountDomain, AccountType
+from app.models.raw import RawExtraction
+from app.models.schema import TableSchema
 
 
 class StatementAdapter(abc.ABC):
-    """Contract that every brokerage-specific parser must satisfy.
+    """Universal contract that every domain-specific parser satisfies."""
 
-    Sub-classes are discovered at runtime and matched against incoming
-    documents via :meth:`matches`.  The first adapter that claims a
-    document is used for extraction.
-    """
+    adapter_id: str
+    adapter_version: str
+    institution_id: str
+    account_domain: AccountDomain
+    account_types: frozenset[AccountType]
 
     @abc.abstractmethod
     def matches(self, file_path: Path) -> bool:
-        """Return ``True`` if this adapter can parse the file at *file_path*.
+        """Return True if this adapter can parse the file at file_path (page-1 detection)."""
 
-        Implementations should perform lightweight heuristic checks
-        (e.g. scanning the first PDF page for a broker logo or header
-        string) without fully parsing the document.
+    def extract(self, file_path: Path) -> RawExtraction:
+        """Extract uninterpreted raw pages, tokens, and integer bboxes from PDF."""
+        from app.extraction.core import extract_pdf_to_raw
 
-        Args:
-            file_path: Absolute or relative path to a PDF statement.
+        return extract_pdf_to_raw(file_path, self.adapter_id, self.adapter_version)
 
-        Returns:
-            ``True`` when the adapter is confident it can handle this file.
-        """
+    def declared_schemas(self) -> Sequence[TableSchema]:
+        """Return declared table schemas and mandatory section markers."""
+        return ()
+
+    def parse(self, file_path: Path) -> RawStatement:
+        """Legacy parse method returning RawStatement for backward compatibility."""
+        raise NotImplementedError("Use parse_canonical or domain parse methods.")
+
+
+class DepositoryStatementAdapter(StatementAdapter, abc.ABC):
+    """Base adapter for depository accounts (checking and savings)."""
+
+    account_domain = AccountDomain.DEPOSITORY
 
     @abc.abstractmethod
-    def parse(self, file_path: Path) -> RawStatement:
-        """Extract structured data from the statement at *file_path*.
+    def parse_header(
+        self, extraction: RawExtraction
+    ) -> tuple[str, AccountType, datetime.date, datetime.date]:
+        """Extract (account_mask, account_type, statement_start_date, statement_end_date)."""
 
-        The returned :class:`~app.models.canonical.RawStatement` must
-        satisfy the cash-balance invariant documented on
-        :class:`~app.models.canonical.StatementSummary`.
+    @abc.abstractmethod
+    def parse_summary(
+        self, extraction: RawExtraction
+    ) -> tuple[int, int, DepositorySummary]:
+        """Extract (opening_balance_cents, closing_balance_cents, DepositorySummary)."""
 
-        Args:
-            file_path: Path to the PDF file to parse.
+    @abc.abstractmethod
+    def parse_transactions(
+        self, extraction: RawExtraction, statement_id
+    ) -> list[CanonicalTransaction]:
+        """Extract and map closed cash table into canonical transactions."""
 
-        Returns:
-            A fully populated ``RawStatement``.
+    def parse_canonical(
+        self, extraction: RawExtraction
+    ) -> tuple[
+        Account, CanonicalStatement, DepositorySummary, list[CanonicalTransaction]
+    ]:
+        """Orchestrate fail-loud parsing, schema checks, and balance reconciliation."""
+        from app.extraction.core import validate_extraction_against_schemas
+        from app.pipeline.validator import (
+            validate_depository_reconciliation,
+            validate_universal_reconciliation,
+        )
 
-        Raises:
-            FileNotFoundError: If *file_path* does not exist.
-            ValueError: If the document is malformed or contains
-                ambiguous / unparseable data.
-        """
+        # 1. Closed schema and section marker validation
+        validate_extraction_against_schemas(extraction, self.declared_schemas())
+
+        # 2. Domain header parsing
+        mask, acc_type, start_date, end_date = self.parse_header(extraction)
+        account = Account(
+            institution=self.institution_id,
+            account_mask=mask,
+            account_domain=AccountDomain.DEPOSITORY,
+            account_type=acc_type,
+        )
+
+        # 3. Domain summary parsing
+        opening_cents, closing_cents, summary = self.parse_summary(extraction)
+        statement = CanonicalStatement(
+            account_id=account.account_id,
+            run_id=extraction.run.run_id,
+            raw_payload_id=extraction.payload.raw_payload_id,
+            statement_start_date=start_date,
+            statement_end_date=end_date,
+            opening_balance_cents=opening_cents,
+            closing_balance_cents=closing_cents,
+            net_change_cents=closing_cents - opening_cents,
+        )
+
+        summary = summary.model_copy(update={"statement_id": statement.statement_id})
+
+        # 4. Domain transaction parsing
+        transactions = self.parse_transactions(extraction, statement.statement_id)
+
+        # 5. Invariant reconciliation
+        validate_universal_reconciliation(
+            statement, transactions, AccountDomain.DEPOSITORY
+        )
+        validate_depository_reconciliation(statement, summary, transactions)
+
+        return account, statement, summary, transactions
+
+
+class CreditCardStatementAdapter(StatementAdapter, abc.ABC):
+    """Base adapter for revolving credit accounts (credit cards)."""
+
+    account_domain = AccountDomain.REVOLVING_CREDIT
+    account_types = frozenset({AccountType.CREDIT_CARD})
+    requires_payment_due_date: bool = True
+
+    @abc.abstractmethod
+    def parse_header(
+        self, extraction: RawExtraction
+    ) -> tuple[str, datetime.date, datetime.date]:
+        """Extract (account_mask, statement_start_date, statement_end_date)."""
+
+    @abc.abstractmethod
+    def parse_summary(
+        self, extraction: RawExtraction
+    ) -> tuple[int, int, CreditCardSummary]:
+        """Extract (opening_balance_cents, closing_balance_cents, CreditCardSummary)."""
+
+    @abc.abstractmethod
+    def parse_transactions(
+        self, extraction: RawExtraction, statement_id
+    ) -> list[CanonicalTransaction]:
+        """Extract credit card transactions with signed deltas."""
+
+    def parse_canonical(
+        self, extraction: RawExtraction
+    ) -> tuple[
+        Account, CanonicalStatement, CreditCardSummary, list[CanonicalTransaction]
+    ]:
+        """Orchestrate credit card parsing, schema verification, and reconciliation."""
+        from app.extraction.core import validate_extraction_against_schemas
+        from app.models.exceptions import MissingSectionError
+        from app.pipeline.validator import (
+            validate_credit_card_reconciliation,
+            validate_universal_reconciliation,
+        )
+
+        validate_extraction_against_schemas(extraction, self.declared_schemas())
+
+        mask, start_date, end_date = self.parse_header(extraction)
+        account = Account(
+            institution=self.institution_id,
+            account_mask=mask,
+            account_domain=AccountDomain.REVOLVING_CREDIT,
+            account_type=AccountType.CREDIT_CARD,
+        )
+
+        opening_cents, closing_cents, summary = self.parse_summary(extraction)
+        if self.requires_payment_due_date and summary.payment_due_date is None:
+            raise MissingSectionError(
+                "Payment due date is required on card statements."
+            )
+        statement = CanonicalStatement(
+            account_id=account.account_id,
+            run_id=extraction.run.run_id,
+            raw_payload_id=extraction.payload.raw_payload_id,
+            statement_start_date=start_date,
+            statement_end_date=end_date,
+            opening_balance_cents=opening_cents,
+            closing_balance_cents=closing_cents,
+            net_change_cents=closing_cents - opening_cents,
+        )
+
+        summary = summary.model_copy(update={"statement_id": statement.statement_id})
+
+        transactions = self.parse_transactions(extraction, statement.statement_id)
+
+        validate_universal_reconciliation(
+            statement, transactions, AccountDomain.REVOLVING_CREDIT
+        )
+        validate_credit_card_reconciliation(statement, summary, transactions)
+
+        return account, statement, summary, transactions
+
+
+class InvestmentStatementAdapter(StatementAdapter, abc.ABC):
+    """Base adapter for custodial / brokerage accounts."""
+
+    account_domain = AccountDomain.CUSTODIAL_BROKERAGE
+    account_types = frozenset(
+        {AccountType.BROKERAGE_CASH, AccountType.BROKERAGE_MARGIN}
+    )
+
+    @abc.abstractmethod
+    def parse_header(
+        self, extraction: RawExtraction
+    ) -> tuple[str, AccountType, datetime.date, datetime.date]:
+        """Extract (account_mask, account_type, statement_start_date, statement_end_date)."""
+
+    @abc.abstractmethod
+    def parse_summary(
+        self, extraction: RawExtraction
+    ) -> tuple[int, int, BrokerageSummary]:
+        """Extract (opening_cash_cents, closing_cash_cents, BrokerageSummary)."""
+
+    @abc.abstractmethod
+    def parse_transactions(
+        self, extraction: RawExtraction, statement_id
+    ) -> list[CanonicalTransaction]:
+        """Extract investment cash/trade transactions."""
+
+    def parse_canonical(
+        self, extraction: RawExtraction
+    ) -> tuple[
+        Account, CanonicalStatement, BrokerageSummary, list[CanonicalTransaction]
+    ]:
+        """Orchestrate brokerage parsing and reconciliation."""
+        from app.extraction.core import validate_extraction_against_schemas
+        from app.pipeline.validator import (
+            validate_brokerage_reconciliation,
+            validate_universal_reconciliation,
+        )
+
+        validate_extraction_against_schemas(extraction, self.declared_schemas())
+
+        mask, acc_type, start_date, end_date = self.parse_header(extraction)
+        account = Account(
+            institution=self.institution_id,
+            account_mask=mask,
+            account_domain=AccountDomain.CUSTODIAL_BROKERAGE,
+            account_type=acc_type,
+        )
+
+        opening_cents, closing_cents, summary = self.parse_summary(extraction)
+        statement = CanonicalStatement(
+            account_id=account.account_id,
+            run_id=extraction.run.run_id,
+            raw_payload_id=extraction.payload.raw_payload_id,
+            statement_start_date=start_date,
+            statement_end_date=end_date,
+            opening_balance_cents=opening_cents,
+            closing_balance_cents=closing_cents,
+            net_change_cents=closing_cents - opening_cents,
+        )
+
+        summary = summary.model_copy(update={"statement_id": statement.statement_id})
+
+        transactions = self.parse_transactions(extraction, statement.statement_id)
+
+        validate_universal_reconciliation(
+            statement, transactions, AccountDomain.CUSTODIAL_BROKERAGE
+        )
+        validate_brokerage_reconciliation(statement, summary, transactions)
+
+        return account, statement, summary, transactions

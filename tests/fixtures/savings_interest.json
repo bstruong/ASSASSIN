@@ -1,0 +1,15 @@
+{
+  "institution": "Standard Bank",
+  "account_type": "Savings",
+  "account_mask": "*5678",
+  "statement_period": "2025-01-01 to 2025-01-31",
+  "summary": {
+    "starting_balance": "$5,000.00",
+    "deposits": "$0.00",
+    "withdrawals": "$0.00",
+    "interest_paid": "$25.00",
+    "fees_charged": "$0.00",
+    "ending_balance": "$5,025.00"
+  },
+  "raw_text": "STANDARD BANK\nSavings Account Number: *5678\nStatement Period: 2025-01-01 to 2025-01-31\n\nACCOUNT SUMMARY\nStarting Balance: $5,000.00\nDeposits and Additions: $0.00\nWithdrawals and Subtractions: $0.00\nInterest Paid: $25.00\nFees Charged: $0.00\nEnding Balance: $5,025.00\n\nTRANSACTION DETAILS\nDate    Description    Amount    Balance\n2025-01-31    Monthly Interest Paid    +$25.00    $5,025.00\nEND OF STATEMENT"
+}

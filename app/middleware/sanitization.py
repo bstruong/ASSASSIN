@@ -99,15 +99,19 @@ def _redact_text(text: str) -> str:
     return text
 
 
-def _redact_value(value: Any) -> Any:
+def _redact_value(value: Any, key: str | None = None) -> Any:
     """Recursively redact PII from a value (string, dict, list, or primitive)."""
+    if key and isinstance(key, str) and re.search(r"amount|balance|payment|charge|fee|total", key, re.IGNORECASE):
+        if isinstance(value, (int, float, str)):
+            return "[REDACTED_AMOUNT]"
     if isinstance(value, str):
         return _redact_text(value)
     if isinstance(value, dict):
-        return {k: _redact_value(v) for k, v in value.items()}
+        return {k: _redact_value(v, key=k) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_redact_value(item) for item in value]
     return value
+
 
 
 class PiiSanitizationMiddleware(BaseHTTPMiddleware):
@@ -132,7 +136,10 @@ class PiiSanitizationMiddleware(BaseHTTPMiddleware):
                         extra={"route": request.url.path},
                     )
             except (json.JSONDecodeError, UnicodeDecodeError):
-                pass
+                logger.warning(
+                    "Failed to parse request body as JSON",
+                    extra={"route": request.url.path},
+                )
 
         # Forward request with redacted body
         request._body = body
@@ -166,6 +173,9 @@ class PiiSanitizationMiddleware(BaseHTTPMiddleware):
                         media_type="application/json",
                     )
                 except (json.JSONDecodeError, UnicodeDecodeError):
-                    pass
+                    logger.warning(
+                        "Failed to parse response body as JSON",
+                        extra={"route": request.url.path},
+                    )
 
         return response

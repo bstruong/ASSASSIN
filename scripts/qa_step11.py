@@ -313,7 +313,7 @@ report.record(
 resp = client.post("/v1/orchestrator/execute_sql", json={"sql": ""})
 report.record(
     "Empty SQL returns error",
-    resp.status_code == 200 and resp.json().get("status") == "failed",
+    resp.status_code in (400, 422),
 )
 
 # ── Final Summary ────────────────────────────────────────────────────

@@ -1,4 +1,3 @@
-
 """Tests for app.middleware.sanitization (PII Sanitization Middleware)."""
 
 from __future__ import annotations
@@ -134,7 +133,7 @@ class TestPiiSanitizationMiddleware:
     @pytest.fixture
     def app_with_middleware(self):
         """Create a test FastAPI app with PII sanitization middleware."""
-        
+
         from starlette.testclient import TestClient
 
         app = FastAPI()
@@ -143,10 +142,10 @@ class TestPiiSanitizationMiddleware:
         async def test_endpoint(request: Request):
             try:
                 body = await request.json()
-            except:
+            except Exception:  # noqa: BLE001
                 from fastapi.responses import JSONResponse
+
                 return JSONResponse(status_code=422, content={"detail": "Invalid JSON"})
-            body = await request.json()
             return {"received": body}
 
         @app.get("/test")

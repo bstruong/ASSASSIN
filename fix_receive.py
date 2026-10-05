@@ -1,4 +1,4 @@
-with open('app/middleware/sanitization.py', 'r') as f:
+with open("app/middleware/sanitization.py", "r") as f:
     lines = f.readlines()
 
 out = []
@@ -20,5 +20,5 @@ for line in lines:
     elif not skip:
         out.append(line)
 
-with open('app/middleware/sanitization.py', 'w') as f:
+with open("app/middleware/sanitization.py", "w") as f:
     f.write("".join(out))

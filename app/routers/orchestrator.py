@@ -295,8 +295,11 @@ def get_database_schemas() -> SchemaResponse:
             try:
                 table_details = get_schema_info(table_name=table_name)
                 tables.append(table_details)
-            except CloudToolError:
-                pass
+            except CloudToolError as exc:
+                logger.warning(
+                    "Failed to introspect table schema",
+                    extra={"table": table_name, "error": str(exc)},
+                )
 
         return SchemaResponse(tables=tables)
 

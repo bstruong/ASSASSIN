@@ -26,14 +26,14 @@ _ALLOWED_STATEMENT_PREFIXES = frozenset(
     {
         "SELECT",
         "INSERT",
-        "UPDATE",
-        "DELETE",
-        "CREATE",
-        "DROP",
-        "ALTER",
-        "TRUNCATE",
+        
+        
+        
+        
+        
+        
         "EXPLAIN",
-        "SET",
+        
     }
 )
 

@@ -112,3 +112,31 @@ Before a pull request can be merged, the Reviewer Agent verifies:
 - **GitHub Actions CI (`.github/workflows/ci.yml`):** Automatically executes linting, formatting check, and the 90% coverage test gate on all PRs and pushes to `main`.
 - **Agent Review Workflow (`.github/workflows/agent-review.yml`):** Automatically executes static invariant scans via `scripts/agent_review.py` and provides automated critique.
 
+---
+
+## Dual-Tier Workflow: Local Generation & Cloud Verification
+
+To combine developer velocity with strict cloud validation, ASSASSIN utilizes a Dual-Tier Workflow across local and cloud environments:
+
+### 1. Tier 1: Local Generation Agent (e.g., `qwen36-coder`)
+- **Role:** Primary author and implementation agent.
+- **Responsibilities:**
+  - Operates locally to author canonical contracts and comprehensive TDD test suites (Red phase).
+  - Implements contract-compliant business logic (Green phase) and refactors for static AST clarity (Refactor phase).
+  - Authors executable QA verification scripts (`scripts/qa_<feature_name>.py`).
+  - Executes local pre-flight checks (`uv sync`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run pytest --cov=app --cov-fail-under=90 -v`, `uv run python scripts/agent_review.py`).
+  - Commits changes and opens the Pull Request on GitHub.
+
+### 2. Tier 2: Cloud Verification Agent (Google Jules)
+- **Role:** Automated Cloud Verification Agent reviewing and remediating PRs on GitHub.
+- **Configuration:** Configured via `.github/jules.yml`.
+- **Mandatory Directives:**
+  - Jules MUST read `AGENTS.md` on every run to internalize repository conventions and strict invariants.
+  - Strictly enforces core invariants:
+    - **Financial Precision:** Integer cents only; zero floats permitted.
+    - **Strict Contract Enforcement:** Fail loudly on schema or parsing errors; zero silent exception swallowing (`except ...: pass`).
+    - **Mutation Testing Gate:** 100% mutation kill rate on core validators (`app/pipeline/validator.py`), >=55% global mutation score.
+    - **Test Coverage:** Maintains >90% line and branch test coverage across all `app/` modules.
+  - **Automated Remediation:** If CI checks (`mutmut`, `pytest`, `ruff`, or `agent_review`) fail on a PR, Jules is instructed to inspect failure logs, diagnose root causes against `AGENTS.md` invariants, and automatically push remediation commits directly to the PR branch.
+  - **Interactive Triggers:** Jules can be summoned directly on PR discussions using triggers such as `@google-jules please verify invariants` or `@google-jules please fix failing tests and mutation gate`.
+

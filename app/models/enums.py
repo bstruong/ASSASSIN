@@ -117,17 +117,23 @@ class RunStatus(StrEnum):
 # ── Domain ↔ AccountType ────────────────────────────────────────────────
 
 DOMAIN_ACCOUNT_TYPES: dict[AccountDomain, frozenset[AccountType]] = {
-    AccountDomain.DEPOSITORY: frozenset({
-        AccountType.CHECKING,
-        AccountType.SAVINGS,
-    }),
-    AccountDomain.REVOLVING_CREDIT: frozenset({
-        AccountType.CREDIT_CARD,
-    }),
-    AccountDomain.CUSTODIAL_BROKERAGE: frozenset({
-        AccountType.BROKERAGE_CASH,
-        AccountType.BROKERAGE_MARGIN,
-    }),
+    AccountDomain.DEPOSITORY: frozenset(
+        {
+            AccountType.CHECKING,
+            AccountType.SAVINGS,
+        }
+    ),
+    AccountDomain.REVOLVING_CREDIT: frozenset(
+        {
+            AccountType.CREDIT_CARD,
+        }
+    ),
+    AccountDomain.CUSTODIAL_BROKERAGE: frozenset(
+        {
+            AccountType.BROKERAGE_CASH,
+            AccountType.BROKERAGE_MARGIN,
+        }
+    ),
 }
 
 
@@ -176,35 +182,41 @@ def validate_account_type_for_domain(
 # ── Domain ↔ TransactionCategory ────────────────────────────────────────
 
 DOMAIN_CATEGORIES: dict[AccountDomain, frozenset[TransactionCategory]] = {
-    AccountDomain.DEPOSITORY: frozenset({
-        TransactionCategory.DEPOSIT,
-        TransactionCategory.WITHDRAWAL,
-        TransactionCategory.INTEREST_PAID,
-        TransactionCategory.FEE,
-        TransactionCategory.FEE_REVERSAL,
-        TransactionCategory.OTHER_CREDIT,
-        TransactionCategory.OTHER_DEBIT,
-    }),
-    AccountDomain.REVOLVING_CREDIT: frozenset({
-        TransactionCategory.PURCHASE,
-        TransactionCategory.PAYMENT,
-        TransactionCategory.CREDIT,
-        TransactionCategory.CASH_ADVANCE,
-        TransactionCategory.BALANCE_TRANSFER,
-        TransactionCategory.FEE,
-        TransactionCategory.INTEREST_CHARGED,
-        TransactionCategory.FEE_REVERSAL,
-    }),
-    AccountDomain.CUSTODIAL_BROKERAGE: frozenset({
-        TransactionCategory.DIVIDEND,
-        TransactionCategory.INTEREST,
-        TransactionCategory.TRANSFER_IN,
-        TransactionCategory.TRANSFER_OUT,
-        TransactionCategory.FEE,
-        TransactionCategory.TRADE_CASH,
-        TransactionCategory.OTHER_CREDIT,
-        TransactionCategory.OTHER_DEBIT,
-    }),
+    AccountDomain.DEPOSITORY: frozenset(
+        {
+            TransactionCategory.DEPOSIT,
+            TransactionCategory.WITHDRAWAL,
+            TransactionCategory.INTEREST_PAID,
+            TransactionCategory.FEE,
+            TransactionCategory.FEE_REVERSAL,
+            TransactionCategory.OTHER_CREDIT,
+            TransactionCategory.OTHER_DEBIT,
+        }
+    ),
+    AccountDomain.REVOLVING_CREDIT: frozenset(
+        {
+            TransactionCategory.PURCHASE,
+            TransactionCategory.PAYMENT,
+            TransactionCategory.CREDIT,
+            TransactionCategory.CASH_ADVANCE,
+            TransactionCategory.BALANCE_TRANSFER,
+            TransactionCategory.FEE,
+            TransactionCategory.INTEREST_CHARGED,
+            TransactionCategory.FEE_REVERSAL,
+        }
+    ),
+    AccountDomain.CUSTODIAL_BROKERAGE: frozenset(
+        {
+            TransactionCategory.DIVIDEND,
+            TransactionCategory.INTEREST,
+            TransactionCategory.TRANSFER_IN,
+            TransactionCategory.TRANSFER_OUT,
+            TransactionCategory.FEE,
+            TransactionCategory.TRADE_CASH,
+            TransactionCategory.OTHER_CREDIT,
+            TransactionCategory.OTHER_DEBIT,
+        }
+    ),
 }
 
 
@@ -243,43 +255,55 @@ def validate_category_for_domain(
 #   Card:                  fee = +N  (owed increases)
 
 POSITIVE_DELTA_CATEGORIES: dict[AccountDomain, frozenset[TransactionCategory]] = {
-    AccountDomain.DEPOSITORY: frozenset({
-        TransactionCategory.DEPOSIT,
-        TransactionCategory.INTEREST_PAID,
-        TransactionCategory.FEE_REVERSAL,
-        TransactionCategory.OTHER_CREDIT,
-    }),
-    AccountDomain.REVOLVING_CREDIT: frozenset({
-        TransactionCategory.PURCHASE,
-        TransactionCategory.CASH_ADVANCE,
-        TransactionCategory.BALANCE_TRANSFER,
-        TransactionCategory.FEE,
-        TransactionCategory.INTEREST_CHARGED,
-    }),
-    AccountDomain.CUSTODIAL_BROKERAGE: frozenset({
-        TransactionCategory.DIVIDEND,
-        TransactionCategory.INTEREST,
-        TransactionCategory.TRANSFER_IN,
-        TransactionCategory.OTHER_CREDIT,
-    }),
+    AccountDomain.DEPOSITORY: frozenset(
+        {
+            TransactionCategory.DEPOSIT,
+            TransactionCategory.INTEREST_PAID,
+            TransactionCategory.FEE_REVERSAL,
+            TransactionCategory.OTHER_CREDIT,
+        }
+    ),
+    AccountDomain.REVOLVING_CREDIT: frozenset(
+        {
+            TransactionCategory.PURCHASE,
+            TransactionCategory.CASH_ADVANCE,
+            TransactionCategory.BALANCE_TRANSFER,
+            TransactionCategory.FEE,
+            TransactionCategory.INTEREST_CHARGED,
+        }
+    ),
+    AccountDomain.CUSTODIAL_BROKERAGE: frozenset(
+        {
+            TransactionCategory.DIVIDEND,
+            TransactionCategory.INTEREST,
+            TransactionCategory.TRANSFER_IN,
+            TransactionCategory.OTHER_CREDIT,
+        }
+    ),
 }
 
 NEGATIVE_DELTA_CATEGORIES: dict[AccountDomain, frozenset[TransactionCategory]] = {
-    AccountDomain.DEPOSITORY: frozenset({
-        TransactionCategory.WITHDRAWAL,
-        TransactionCategory.FEE,
-        TransactionCategory.OTHER_DEBIT,
-    }),
-    AccountDomain.REVOLVING_CREDIT: frozenset({
-        TransactionCategory.PAYMENT,
-        TransactionCategory.CREDIT,
-        TransactionCategory.FEE_REVERSAL,
-    }),
-    AccountDomain.CUSTODIAL_BROKERAGE: frozenset({
-        TransactionCategory.TRANSFER_OUT,
-        TransactionCategory.FEE,
-        TransactionCategory.OTHER_DEBIT,
-    }),
+    AccountDomain.DEPOSITORY: frozenset(
+        {
+            TransactionCategory.WITHDRAWAL,
+            TransactionCategory.FEE,
+            TransactionCategory.OTHER_DEBIT,
+        }
+    ),
+    AccountDomain.REVOLVING_CREDIT: frozenset(
+        {
+            TransactionCategory.PAYMENT,
+            TransactionCategory.CREDIT,
+            TransactionCategory.FEE_REVERSAL,
+        }
+    ),
+    AccountDomain.CUSTODIAL_BROKERAGE: frozenset(
+        {
+            TransactionCategory.TRANSFER_OUT,
+            TransactionCategory.FEE,
+            TransactionCategory.OTHER_DEBIT,
+        }
+    ),
 }
 
 # Categories NOT in either POSITIVE or NEGATIVE for a domain allow

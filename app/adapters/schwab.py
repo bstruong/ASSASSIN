@@ -70,7 +70,9 @@ class SchwabAdapter(StatementAdapter):
 
         matched = self._HEADER_MARKER in first_page_text
         if matched:
-            logger.debug("SchwabAdapter matched document.", extra={"file": str(resolved)})
+            logger.debug(
+                "SchwabAdapter matched document.", extra={"file": str(resolved)}
+            )
         return matched
 
     # ------------------------------------------------------------------
@@ -83,7 +85,9 @@ class SchwabAdapter(StatementAdapter):
         if not resolved.is_file():
             raise FileNotFoundError(f"Statement file not found: {resolved}")
 
-        logger.info("Starting Schwab statement extraction", extra={"file": str(resolved)})
+        logger.info(
+            "Starting Schwab statement extraction", extra={"file": str(resolved)}
+        )
 
         try:
             with pdfplumber.open(resolved) as pdf:
@@ -97,10 +101,24 @@ class SchwabAdapter(StatementAdapter):
                     period_end=summary.period_end,
                 )
         except Exception as exc:
-            logger.error("Schwab parsing failed", extra={"file": str(resolved), "error": str(exc)})
-            if isinstance(exc, (FileNotFoundError, ValueError, MissingSectionError, SchemaDriftError, TokenError)):
+            logger.error(
+                "Schwab parsing failed",
+                extra={"file": str(resolved), "error": str(exc)},
+            )
+            if isinstance(
+                exc,
+                (
+                    FileNotFoundError,
+                    ValueError,
+                    MissingSectionError,
+                    SchemaDriftError,
+                    TokenError,
+                ),
+            ):
                 raise
-            raise ValueError(f"Failed to parse Schwab PDF at {resolved}: {exc}") from exc
+            raise ValueError(
+                f"Failed to parse Schwab PDF at {resolved}: {exc}"
+            ) from exc
 
         statement: RawStatement = RawStatement(
             source_file=resolved.name,
@@ -109,14 +127,17 @@ class SchwabAdapter(StatementAdapter):
             transactions=transactions,
         )
 
-        logger.info("Running pipeline validation on Schwab statement", extra={"file": str(resolved)})
+        logger.info(
+            "Running pipeline validation on Schwab statement",
+            extra={"file": str(resolved)},
+        )
         validate_date_continuity(statement)
         validate_cash_balance(statement)
 
-        logger.info("Schwab statement extraction successful", extra={
-            "file": str(resolved),
-            "transactions_count": len(transactions)
-        })
+        logger.info(
+            "Schwab statement extraction successful",
+            extra={"file": str(resolved), "transactions_count": len(transactions)},
+        )
         return statement
 
     # ------------------------------------------------------------------
@@ -128,28 +149,38 @@ class SchwabAdapter(StatementAdapter):
         first_page_text: str = pdf.pages[0].extract_text() or ""
 
         # 1. Extract Account number
-        account_match = re.search(r"Account(?: Number)?[:\s]+([*X\d-]+)", first_page_text, re.IGNORECASE)
+        account_match = re.search(
+            r"Account(?: Number)?[:\s]+([*X\d-]+)", first_page_text, re.IGNORECASE
+        )
         if not account_match:
-            logger.error("Missing account number block", extra={"page_text_len": len(first_page_text)})
+            logger.error(
+                "Missing account number block",
+                extra={"page_text_len": len(first_page_text)},
+            )
             raise MissingSectionError("Could not locate account number on page 1.")
         account_number_masked = account_match.group(1)
 
         # 2. Extract Statement Period dates
         date_match = re.search(
-           r"Statement Period.*?(\d{1,2}/\d{1,2}/\d{2,4})\s*(?:-|to)\s*(\d{1,2}/\d{1,2}/\d{2,4})", 
-           first_page_text,
-           re.IGNORECASE | re.DOTALL
+            r"Statement Period.*?(\d{1,2}/\d{1,2}/\d{2,4})\s*(?:-|to)\s*(\d{1,2}/\d{1,2}/\d{2,4})",
+            first_page_text,
+            re.IGNORECASE | re.DOTALL,
         )
         if not date_match:
-            logger.error("Missing statement period dates", extra={"page_text_len": len(first_page_text)})
-            raise MissingSectionError("Could not locate statement period dates on page 1.")
+            logger.error(
+                "Missing statement period dates",
+                extra={"page_text_len": len(first_page_text)},
+            )
+            raise MissingSectionError(
+                "Could not locate statement period dates on page 1."
+            )
 
         def parse_date(date_str: str) -> datetime.date:
             for fmt in ("%m/%d/%Y", "%m/%d/%y"):
                 try:
-                    return datetime.datetime.strptime(date_str, fmt).date() # noqa: DTZ007
+                    return datetime.datetime.strptime(date_str, fmt).date()  # noqa: DTZ007
                 except ValueError:
-                    pass
+                    continue
             logger.error("Invalid summary date format", extra={"date_str": date_str})
             raise TokenError(f"Could not parse date format: {date_str}")
 
@@ -160,7 +191,7 @@ class SchwabAdapter(StatementAdapter):
         start_match = re.search(
             r"(?:Beginning|Starting)(?: Cash)? Balance[^$\d]*([$]?-?[\d,]+\.\d{2})",
             first_page_text,
-            re.IGNORECASE
+            re.IGNORECASE,
         )
         if not start_match:
             logger.error("Missing starting cash balance")
@@ -169,7 +200,7 @@ class SchwabAdapter(StatementAdapter):
         end_match = re.search(
             r"(?:Ending|Closing)(?: Cash)? Balance[^$\d]*([$]?-?[\d,]+\.\d{2})",
             first_page_text,
-            re.IGNORECASE
+            re.IGNORECASE,
         )
         if not end_match:
             logger.error("Missing ending cash balance")
@@ -183,7 +214,7 @@ class SchwabAdapter(StatementAdapter):
             period_start=period_start,
             period_end=period_end,
             start_balance_cents=start_balance_cents,
-            end_balance_cents=end_balance_cents
+            end_balance_cents=end_balance_cents,
         )
 
     # ------------------------------------------------------------------
@@ -218,15 +249,19 @@ class SchwabAdapter(StatementAdapter):
                     desc_idx = headers.index("description")
                     amt_idx = headers.index("amount")
                 except ValueError as exc:
-                    logger.error("Transaction table headers drifted", extra={"headers": headers})
-                    raise SchemaDriftError(f"Missing required columns in table: {headers}") from exc
+                    logger.error(
+                        "Transaction table headers drifted", extra={"headers": headers}
+                    )
+                    raise SchemaDriftError(
+                        f"Missing required columns in table: {headers}"
+                    ) from exc
 
                 cat_idx = headers.index("category") if "category" in headers else None
 
                 for row in table[1:]:
                     if not row or not any(str(c).strip() for c in row):
                         continue
-                    
+
                     if len(row) <= max(date_idx, desc_idx, amt_idx):
                         logger.error("Malformed row structure", extra={"row": row})
                         raise SchemaDriftError(f"Row has insufficient columns: {row}")
@@ -243,14 +278,19 @@ class SchwabAdapter(StatementAdapter):
                     txn_date = None
                     for fmt in ("%m/%d/%Y", "%m/%d/%y"):
                         try:
-                            txn_date = datetime.datetime.strptime(raw_date, fmt).date() # noqa: DTZ007
+                            txn_date = datetime.datetime.strptime(raw_date, fmt).date()  # noqa: DTZ007
                             break
                         except ValueError:
-                            pass
+                            continue
 
                     if not txn_date:
-                        logger.error("Failed to parse transaction date", extra={"raw_date": raw_date, "row": row})
-                        raise TokenError(f"Invalid date format in transaction row: '{raw_date}'")
+                        logger.error(
+                            "Failed to parse transaction date",
+                            extra={"raw_date": raw_date, "row": row},
+                        )
+                        raise TokenError(
+                            f"Invalid date format in transaction row: '{raw_date}'"
+                        )
 
                     if not (period_start <= txn_date <= period_end):
                         # Filter transactions strictly outside the statement period
@@ -259,14 +299,21 @@ class SchwabAdapter(StatementAdapter):
 
                     # 2. Determine Transaction Type (Debit/Credit)
                     is_debit = raw_amt.startswith(("-", "("))
-                    txn_type = TransactionType.DEBIT if is_debit else TransactionType.CREDIT
+                    txn_type = (
+                        TransactionType.DEBIT if is_debit else TransactionType.CREDIT
+                    )
 
                     # 3. Parse Amount
                     try:
                         amount_cents = self._parse_cents(raw_amt)
                     except ValueError as exc:
-                        logger.error("Failed to parse transaction amount", extra={"raw_amt": raw_amt, "row": row})
-                        raise TokenError(f"Invalid amount format in transaction row: '{raw_amt}'") from exc
+                        logger.error(
+                            "Failed to parse transaction amount",
+                            extra={"raw_amt": raw_amt, "row": row},
+                        )
+                        raise TokenError(
+                            f"Invalid amount format in transaction row: '{raw_amt}'"
+                        ) from exc
 
                     # 4. Extract Category
                     category = None
@@ -296,7 +343,7 @@ class SchwabAdapter(StatementAdapter):
             raise ValueError("Amount string must be a non-empty string.")
 
         cleaned = amount_str.strip()
-        
+
         if cleaned.startswith("(") and cleaned.endswith(")"):
             cleaned = cleaned[1:-1].strip()
 

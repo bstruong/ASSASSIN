@@ -12,8 +12,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mutmut>=3.8.0",
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.6.0",
 ]
 
 [build-system]
@@ -27,3 +30,8 @@ packages = ["app"]
 testpaths = ["tests"]
 strict = true
 filterwarnings = ["error"]
+
+[tool.mutmut]
+source_paths = ["app"]
+pytest_add_cli_args_test_selection = ["tests"]
+

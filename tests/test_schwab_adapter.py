@@ -16,6 +16,7 @@ These tests verify that:
 from __future__ import annotations
 
 import datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -26,6 +27,11 @@ from app.models.canonical import (
     RawStatement,
     StatementSummary,
     TransactionType,
+)
+from app.models.exceptions import (
+    MissingSectionError,
+    SchemaDriftError,
+    TokenError,
 )
 from app.pipeline.validator import validate_cash_balance, validate_date_continuity
 
@@ -89,15 +95,11 @@ class TestCanonicalModelParsing:
 class TestValidation:
     """Validators must pass on a well-formed statement."""
 
-    def test_date_continuity_passes(
-        self, schwab_raw_statement: RawStatement
-    ) -> None:
+    def test_date_continuity_passes(self, schwab_raw_statement: RawStatement) -> None:
         """No exception when dates are ordered and within the period."""
         validate_date_continuity(schwab_raw_statement)
 
-    def test_cash_balance_passes(
-        self, schwab_raw_statement: RawStatement
-    ) -> None:
+    def test_cash_balance_passes(self, schwab_raw_statement: RawStatement) -> None:
         """No exception when the balance equation holds."""
         validate_cash_balance(schwab_raw_statement)
 
@@ -110,9 +112,7 @@ class TestValidation:
 class TestValidationFailures:
     """Validators must raise ``ValueError`` on bad data."""
 
-    def test_balance_mismatch_raises(
-        self, schwab_raw_statement: RawStatement
-    ) -> None:
+    def test_balance_mismatch_raises(self, schwab_raw_statement: RawStatement) -> None:
         """A one-cent discrepancy in end_balance triggers a ValueError."""
         bad_summary = StatementSummary(
             account_number_masked=schwab_raw_statement.summary.account_number_masked,
@@ -130,9 +130,7 @@ class TestValidationFailures:
         with pytest.raises(ValueError, match="Cash balance mismatch"):
             validate_cash_balance(bad_statement)
 
-    def test_out_of_range_date_raises(
-        self, schwab_raw_statement: RawStatement
-    ) -> None:
+    def test_out_of_range_date_raises(self, schwab_raw_statement: RawStatement) -> None:
         """A transaction dated outside the period triggers a ValueError."""
         out_of_range_txn = CashTransaction(
             date=datetime.date(2025, 9, 5),
@@ -153,9 +151,7 @@ class TestValidationFailures:
         with pytest.raises(ValueError, match="outside the statement period"):
             validate_date_continuity(bad_statement)
 
-    def test_misordered_dates_raise(
-        self, schwab_raw_statement: RawStatement
-    ) -> None:
+    def test_misordered_dates_raise(self, schwab_raw_statement: RawStatement) -> None:
         """Transactions out of chronological order trigger a ValueError."""
         txns = list(schwab_raw_statement.transactions)
         reversed_txns = list(reversed(txns))
@@ -167,6 +163,78 @@ class TestValidationFailures:
         )
         with pytest.raises(ValueError, match="not in chronological order"):
             validate_date_continuity(bad_statement)
+
+    def test_single_day_period_valid(self) -> None:
+        """A statement where period_start == period_end is valid (not inverted)."""
+        summary = StatementSummary(
+            account_number_masked="****0000",
+            period_start=datetime.date(2025, 8, 15),
+            period_end=datetime.date(2025, 8, 15),
+            start_balance_cents=100,
+            end_balance_cents=100,
+        )
+        statement = RawStatement(
+            source_file="test.pdf",
+            broker="Test",
+            summary=summary,
+            transactions=[
+                CashTransaction(
+                    date=datetime.date(2025, 8, 15),
+                    description="SAME DAY TXN 1",
+                    transaction_type=TransactionType.CREDIT,
+                    amount_cents=50,
+                    category=None,
+                ),
+                CashTransaction(
+                    date=datetime.date(2025, 8, 15),
+                    description="SAME DAY TXN 2",
+                    transaction_type=TransactionType.DEBIT,
+                    amount_cents=50,
+                    category=None,
+                ),
+            ],
+        )
+        # Must not raise
+        validate_date_continuity(statement)
+        validate_cash_balance(statement)
+
+    def test_transaction_before_period_start_raises(
+        self, schwab_raw_statement: RawStatement
+    ) -> None:
+        """A transaction dated strictly before period_start triggers a ValueError."""
+        early_txn = CashTransaction(
+            date=schwab_raw_statement.summary.period_start - datetime.timedelta(days=1),
+            description="EARLY TRANSACTION",
+            transaction_type=TransactionType.CREDIT,
+            amount_cents=100,
+            category=None,
+        )
+        bad_statement = RawStatement(
+            source_file=schwab_raw_statement.source_file,
+            broker=schwab_raw_statement.broker,
+            summary=schwab_raw_statement.summary,
+            transactions=[early_txn, *schwab_raw_statement.transactions],
+        )
+        with pytest.raises(ValueError, match="outside the statement period"):
+            validate_date_continuity(bad_statement)
+
+    def test_balance_mismatch_includes_exact_difference(self) -> None:
+        """Verify the exception message contains the exact discrepancy calculation."""
+        summary = StatementSummary(
+            account_number_masked="****0000",
+            period_start=datetime.date(2025, 8, 1),
+            period_end=datetime.date(2025, 8, 31),
+            start_balance_cents=1000,
+            end_balance_cents=1500,  # Expected 1000, diff is -500
+        )
+        statement = RawStatement(
+            source_file="test.pdf",
+            broker="Test",
+            summary=summary,
+            transactions=[],
+        )
+        with pytest.raises(ValueError, match=r"difference: -500 cents"):
+            validate_cash_balance(statement)
 
     def test_inverted_period_raises(self) -> None:
         """A statement where period_start > period_end triggers a ValueError."""
@@ -260,7 +328,9 @@ class TestSchwabAdapterWiring:
 
         assert issubclass(SchwabAdapter, StatementAdapter)
 
-    def test_parse_raises_on_missing_file(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_parse_raises_on_missing_file(
+        self, tmp_path: pytest.TempPathFactory
+    ) -> None:
         """parse() raises FileNotFoundError for non-existent paths."""
         adapter = SchwabAdapter()
         with pytest.raises(FileNotFoundError):
@@ -342,9 +412,271 @@ class TestSchwabAdapterWiring:
         # Test without dollar sign or commas
         assert adapter._parse_cents("500.00") == 50000
 
-    def test_matches_raises_on_missing_file(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_matches_raises_on_missing_file(
+        self, tmp_path: pytest.TempPathFactory
+    ) -> None:
         """matches() raises FileNotFoundError for non-existent paths."""
         adapter = SchwabAdapter()
         with pytest.raises(FileNotFoundError):
             adapter.matches(tmp_path / "nonexistent.pdf")  # type: ignore[arg-type]
 
+    def test_matches_with_mocked_pdf(self, tmp_path: pytest.TempPathFactory) -> None:
+        """matches() inspects page 1 text for the header marker."""
+        dummy_file = tmp_path / "statement.pdf"
+        dummy_file.write_text("dummy")
+
+        adapter = SchwabAdapter()
+
+        # Happy match
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = (
+            "Charles Schwab & Co., Inc. Monthly Statement"
+        )
+        mock_pdf = MagicMock()
+        mock_pdf.__enter__.return_value = mock_pdf
+        mock_pdf.pages = [mock_page]
+
+        with patch("pdfplumber.open", return_value=mock_pdf):
+            assert adapter.matches(dummy_file) is True
+
+        # Non-matching
+        mock_page.extract_text.return_value = "Fidelity Brokerage Statement"
+        with patch("pdfplumber.open", return_value=mock_pdf):
+            assert adapter.matches(dummy_file) is False
+
+        # Empty pages
+        mock_pdf.pages = []
+        with (
+            patch("pdfplumber.open", return_value=mock_pdf),
+            pytest.raises(ValueError, match="PDF has no pages"),
+        ):
+            adapter.matches(dummy_file)
+
+        # Corrupt file
+        with (
+            patch("pdfplumber.open", side_effect=RuntimeError("Corrupted stream")),
+            pytest.raises(ValueError, match="Failed to read PDF"),
+        ):
+            adapter.matches(dummy_file)
+
+    def test_parse_happy_path(self, tmp_path: pytest.TempPathFactory) -> None:
+        """parse() succeeds end-to-end when summary and transactions align."""
+        dummy_file = tmp_path / "schwab_valid.pdf"
+        dummy_file.write_text("dummy")
+
+        adapter = SchwabAdapter()
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = (
+            "Charles Schwab & Co., Inc.\n"
+            "Account Number: ****1234\n"
+            "Statement Period 08/01/2025 to 08/31/2025\n"
+            "Beginning Cash Balance $1,000.00\n"
+            "Ending Cash Balance $1,250.00\n"
+            "Cash Transaction Activity"
+        )
+        mock_page.extract_tables.return_value = [
+            [
+                ["Date", "Description", "Amount"],
+                ["08/05/2025", "SCHWAB BANK INTEREST", "$300.00"],
+                ["08/10/2025", "WIRE FEE", "-$50.00"],
+            ]
+        ]
+        mock_pdf = MagicMock()
+        mock_pdf.__enter__.return_value = mock_pdf
+        mock_pdf.pages = [mock_page]
+
+        with patch("pdfplumber.open", return_value=mock_pdf):
+            stmt = adapter.parse(dummy_file)
+
+        assert stmt.broker == "Charles Schwab"
+        assert stmt.summary.account_number_masked == "****1234"
+        assert len(stmt.transactions) == 2
+        assert stmt.summary.start_balance_cents == 100000
+        assert stmt.summary.end_balance_cents == 125000
+
+    def test_parse_failures(self, tmp_path: pytest.TempPathFactory) -> None:
+        """parse() fails loudly on empty pages or corrupted stream."""
+        dummy_file = tmp_path / "broken.pdf"
+        dummy_file.write_text("dummy")
+
+        adapter = SchwabAdapter()
+        mock_pdf = MagicMock()
+        mock_pdf.__enter__.return_value = mock_pdf
+        mock_pdf.pages = []
+
+        with (
+            patch("pdfplumber.open", return_value=mock_pdf),
+            pytest.raises(ValueError, match="PDF has no pages"),
+        ):
+            adapter.parse(dummy_file)
+
+        with (
+            patch("pdfplumber.open", side_effect=RuntimeError("I/O failure")),
+            pytest.raises(ValueError, match="Failed to parse Schwab PDF"),
+        ):
+            adapter.parse(dummy_file)
+
+    def test_extract_summary_missing_sections(self) -> None:
+        """_extract_summary() enforces required sections and valid dates."""
+        adapter = SchwabAdapter()
+
+        # Missing account number
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = (
+            "Statement Period 08/01/25 to 08/31/25\n"
+            "Beginning Cash Balance $100.00\n"
+            "Ending Cash Balance $100.00"
+        )
+        mock_pdf = MagicMock(pages=[mock_page])
+        with pytest.raises(MissingSectionError, match="account number"):
+            adapter._extract_summary(mock_pdf)
+
+        # Missing statement period
+        mock_page.extract_text.return_value = (
+            "Account Number: ****1234\n"
+            "Beginning Cash Balance $100.00\n"
+            "Ending Cash Balance $100.00"
+        )
+        mock_pdf = MagicMock(pages=[mock_page])
+        with pytest.raises(MissingSectionError, match="statement period"):
+            adapter._extract_summary(mock_pdf)
+
+        # Invalid date format in statement period
+        mock_page.extract_text.return_value = (
+            "Account Number: ****1234\n"
+            "Statement Period 99/99/9999 to 99/99/9999\n"
+            "Beginning Cash Balance $100.00\n"
+            "Ending Cash Balance $100.00"
+        )
+        mock_pdf = MagicMock(pages=[mock_page])
+        with pytest.raises(TokenError, match="Could not parse date format"):
+            adapter._extract_summary(mock_pdf)
+
+        # Missing starting balance
+        mock_page.extract_text.return_value = (
+            "Account Number: ****1234\n"
+            "Statement Period 08/01/25 to 08/31/25\n"
+            "Ending Cash Balance $100.00"
+        )
+        mock_pdf = MagicMock(pages=[mock_page])
+        with pytest.raises(MissingSectionError, match="starting balance"):
+            adapter._extract_summary(mock_pdf)
+
+        # Missing ending balance
+        mock_page.extract_text.return_value = (
+            "Account Number: ****1234\n"
+            "Statement Period 08/01/25 to 08/31/25\n"
+            "Beginning Cash Balance $100.00"
+        )
+        mock_pdf = MagicMock(pages=[mock_page])
+        with pytest.raises(MissingSectionError, match="ending balance"):
+            adapter._extract_summary(mock_pdf)
+
+    def test_extract_transactions_edge_cases(self) -> None:
+        """_extract_transactions() tests header drift, malformed rows, and out-of-period filtering."""
+        adapter = SchwabAdapter()
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "Cash Transaction Activity"
+        mock_pdf = MagicMock(pages=[mock_page])
+
+        # Table without target headers is skipped
+        mock_page.extract_tables.return_value = [[["Col1", "Col2"], ["Val1", "Val2"]]]
+        assert (
+            adapter._extract_transactions(
+                mock_pdf, datetime.date(2025, 8, 1), datetime.date(2025, 8, 31)
+            )
+            == []
+        )
+
+        # Table missing required headers when matched
+        mock_page.extract_tables.return_value = [
+            [
+                ["Date", "Description", "Other"],
+                ["08/05/2025", "desc", "val"],
+            ]
+        ]
+        assert (
+            adapter._extract_transactions(
+                mock_pdf, datetime.date(2025, 8, 1), datetime.date(2025, 8, 31)
+            )
+            == []
+        )
+
+        # Table with category and subheaders, blank rows
+        mock_page.extract_tables.return_value = [
+            [
+                ["Date", "Description", "Amount", "Category"],
+                [],
+                ["", "", ""],
+                ["", "SUBHEADER ONLY", ""],
+                ["08/05/2025", "DIVIDEND", "$100.00", "Dividends"],
+                ["09/05/2025", "NEXT MONTH", "$50.00", "Interest"],  # outside period
+            ]
+        ]
+        txns = adapter._extract_transactions(
+            mock_pdf, datetime.date(2025, 8, 1), datetime.date(2025, 8, 31)
+        )
+        assert len(txns) == 1
+        assert txns[0].category == "Dividends"
+
+        # Malformed row structure (too few columns)
+        mock_page.extract_tables.return_value = [
+            [
+                ["Date", "Description", "Amount"],
+                ["08/05/2025"],
+            ]
+        ]
+        with pytest.raises(SchemaDriftError, match="insufficient columns"):
+            adapter._extract_transactions(
+                mock_pdf, datetime.date(2025, 8, 1), datetime.date(2025, 8, 31)
+            )
+
+        # Invalid date format in transaction row
+        mock_page.extract_tables.return_value = [
+            [
+                ["Date", "Description", "Amount"],
+                ["invalid-date", "TEST", "$10.00"],
+            ]
+        ]
+        with pytest.raises(TokenError, match="Invalid date format"):
+            adapter._extract_transactions(
+                mock_pdf, datetime.date(2025, 8, 1), datetime.date(2025, 8, 31)
+            )
+
+        # Invalid amount format in transaction row
+        mock_page.extract_tables.return_value = [
+            [
+                ["Date", "Description", "Amount"],
+                ["08/05/2025", "TEST", "not-a-dollar"],
+            ]
+        ]
+        with pytest.raises(TokenError, match="Invalid amount format"):
+            adapter._extract_transactions(
+                mock_pdf, datetime.date(2025, 8, 1), datetime.date(2025, 8, 31)
+            )
+
+    def test_parse_cents_validation_failures(self) -> None:
+        """_parse_cents() fails loudly on all malformed currency inputs."""
+        adapter = SchwabAdapter()
+
+        with pytest.raises(ValueError, match="non-empty string"):
+            adapter._parse_cents("")
+
+        with pytest.raises(ValueError, match="non-empty string"):
+            adapter._parse_cents("   ")
+
+        with pytest.raises(ValueError, match="Invalid currency format"):
+            adapter._parse_cents("$$$")
+
+        with pytest.raises(ValueError, match="Invalid decimal places"):
+            adapter._parse_cents("12.345")
+
+        with pytest.raises(ValueError, match="Multiple decimal points"):
+            adapter._parse_cents("12.34.56")
+
+        with pytest.raises(ValueError, match="Non-digit numeric content"):
+            adapter._parse_cents("12.AB")
+
+        with pytest.raises(ValueError, match="Parsed amount must be positive"):
+            adapter._parse_cents("$0.00")

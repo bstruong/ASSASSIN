@@ -1,19 +1,14 @@
 """Charles Schwab brokerage-statement adapter.
 
-This adapter targets the standard Schwab *Individual Brokerage Account*
-monthly PDF statement.  It identifies candidate documents by scanning
-the first page for the ``"Charles Schwab"`` header and then extracts
-the cash-transaction ledger into canonical models.
-
-Extraction pipeline:
-
-1. Verify file existence and open the PDF with ``pdfplumber``.
-2. Extract the account summary (masked account number, period dates,
-   opening/closing cash balances) from page 1.
-3. Walk the cash-transaction table(s) across all relevant pages and
-   build a date-sorted list of ``CashTransaction`` records.
-4. Run pipeline validators (date continuity, cash-balance invariant)
-   against the assembled ``RawStatement`` before returning it.
+This adapter targets Charles Schwab brokerage accounts (cash and margin).
+It supports:
+1. Canonical extraction pipeline conforming to InvestmentStatementAdapter:
+   - Closed-schema validation against declared section markers and headers.
+   - Ambiguous multi-account detection.
+   - Universal reconciliation: opening_cash + sum(signed cash deltas) == closing_cash.
+   - Domain portfolio bridge reconciliation when portfolio summary components are present:
+     opening_portfolio + transfers_in - transfers_out + income_dividends + realized_gains + unrealized_gains == closing_portfolio.
+2. Backwards-compatible legacy PDF parsing returning RawStatement.
 """
 
 from __future__ import annotations
@@ -21,32 +16,54 @@ from __future__ import annotations
 import datetime
 import logging
 import re
+from collections.abc import Sequence
 from pathlib import Path
+from uuid import UUID
 
 import pdfplumber
 
-from app.adapters.base import StatementAdapter
+from app.adapters.base import InvestmentStatementAdapter
+from app.extraction.core import (
+    parse_currency_to_cents,
+    validate_table_against_schema,
+)
 from app.models.canonical import (
+    BrokerageSummary,
+    CanonicalTransaction,
     CashTransaction,
     RawStatement,
     StatementSummary,
     TransactionType,
 )
+from app.models.enums import (
+    AccountType,
+    TransactionCategory,
+    validate_category_sign,
+)
 from app.models.exceptions import (
+    AmbiguousAccountsError,
     MissingSectionError,
     SchemaDriftError,
     TokenError,
 )
+from app.models.raw import RawExtraction
+from app.models.schema import TableSchema
 from app.pipeline.validator import validate_cash_balance, validate_date_continuity
 
 logger = logging.getLogger(__name__)
 
 
-class SchwabAdapter(StatementAdapter):
+class SchwabAdapter(InvestmentStatementAdapter):
     """Parse Charles Schwab monthly brokerage statements."""
 
+    adapter_id: str = "schwab_brokerage"
+    adapter_version: str = "1.0.0"
+    institution_id: str = "Charles Schwab"
     BROKER_NAME: str = "Charles Schwab"
     _HEADER_MARKER: str = "Charles Schwab"
+    account_types = frozenset(
+        {AccountType.BROKERAGE_CASH, AccountType.BROKERAGE_MARGIN}
+    )
 
     # ------------------------------------------------------------------
     # Detection
@@ -68,7 +85,7 @@ class SchwabAdapter(StatementAdapter):
                 raise
             raise ValueError(f"Failed to read PDF at {resolved}: {exc}") from exc
 
-        matched = self._HEADER_MARKER in first_page_text
+        matched = self._HEADER_MARKER.upper() in first_page_text.upper()
         if matched:
             logger.debug(
                 "SchwabAdapter matched document.", extra={"file": str(resolved)}
@@ -76,17 +93,320 @@ class SchwabAdapter(StatementAdapter):
         return matched
 
     # ------------------------------------------------------------------
-    # Extraction entry point
+    # Canonical Schema Declaration
+    # ------------------------------------------------------------------
+
+    def declared_schemas(self) -> Sequence[TableSchema]:
+        """Declare expected table structures and mandatory section markers."""
+        return [
+            TableSchema(
+                name="schwab_cash_transactions",
+                headers=("Date", "Description", "Amount"),
+                section_markers=("ACCOUNT SUMMARY", "TRANSACTION ACTIVITY"),
+            )
+        ]
+
+    # ------------------------------------------------------------------
+    # Canonical Header Extraction
+    # ------------------------------------------------------------------
+
+    def parse_header(
+        self, extraction: RawExtraction
+    ) -> tuple[str, AccountType, datetime.date, datetime.date]:
+        """Extract account mask, account type, and statement period dates."""
+        p1_text = extraction.pages[0].page_text if extraction.pages else ""
+
+        # 1. Ambiguous accounts detection
+        masks = re.findall(
+            r"Account(?: Number)?[:\s]+([*X\d-]+)", p1_text, re.IGNORECASE
+        )
+        unique_masks = sorted(set(masks))
+        if len(unique_masks) > 1:
+            logger.error("Multiple distinct account masks detected on statement page")
+            raise AmbiguousAccountsError(
+                f"Multiple distinct account masks detected: {unique_masks}"
+            )
+
+        if not unique_masks:
+            raise MissingSectionError("Could not locate account number on statement.")
+        account_mask = unique_masks[0]
+
+        # Check for multiple account sections
+        has_cash_section = bool(
+            re.search(r"Brokerage\s+Cash\s+Summary", p1_text, re.IGNORECASE)
+        )
+        has_margin_section = bool(
+            re.search(r"Margin\s+Account\s+Summary", p1_text, re.IGNORECASE)
+        )
+        if has_cash_section and has_margin_section:
+            raise AmbiguousAccountsError(
+                "Both Cash and Margin account sections detected on statement."
+            )
+
+        # 2. Account type
+        if "MARGIN" in p1_text.upper():
+            account_type = AccountType.BROKERAGE_MARGIN
+        else:
+            account_type = AccountType.BROKERAGE_CASH
+
+        # 3. Statement period dates
+        date_match = re.search(
+            r"Statement Period.*?(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4})\s*(?:to|-)\s*(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4})",
+            p1_text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not date_match:
+            raise MissingSectionError("Could not locate statement period dates.")
+
+        def parse_date(date_str: str) -> datetime.date:
+            for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+                try:
+                    return datetime.datetime.strptime(date_str, fmt).date()  # noqa: DTZ007
+                except ValueError:
+                    pass
+            raise TokenError(f"Invalid date format: {date_str}")
+
+        start_date = parse_date(date_match.group(1))
+        end_date = parse_date(date_match.group(2))
+
+        return account_mask, account_type, start_date, end_date
+
+    # ------------------------------------------------------------------
+    # Canonical Summary Extraction
+    # ------------------------------------------------------------------
+
+    def parse_summary(
+        self, extraction: RawExtraction
+    ) -> tuple[int, int, BrokerageSummary]:
+        """Extract cash balances and optional portfolio bridge summary."""
+        all_text = "\n".join(p.page_text for p in extraction.pages)
+
+        def extract_cents(pattern: str, required: bool = True) -> int | None:
+            match = re.search(pattern, all_text, re.IGNORECASE)
+            if not match:
+                if required:
+                    raise MissingSectionError(
+                        f"Missing summary field matching pattern: {pattern}"
+                    )
+                return None
+            val_str = match.group(1).strip()
+            return parse_currency_to_cents(val_str, allow_zero=True)
+
+        opening_cash = extract_cents(
+            r"(?:Beginning|Starting)(?: Cash)? Balance[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+            required=True,
+        )
+        closing_cash = extract_cents(
+            r"(?:Ending|Closing)(?: Cash)? Balance[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+            required=True,
+        )
+        assert opening_cash is not None and closing_cash is not None
+
+        # Check for portfolio summary bridge
+        has_portfolio_section = bool(
+            re.search(
+                r"PORTFOLIO SUMMARY|(?:Beginning|Starting)\s+Portfolio\s*(?:Value)?",
+                all_text,
+                re.IGNORECASE,
+            )
+        )
+
+        opening_portfolio = None
+        closing_portfolio = None
+        transfers_in = None
+        transfers_out = None
+        income_dividends = None
+        realized_gains = None
+        unrealized_gains = None
+
+        if has_portfolio_section:
+            opening_portfolio = extract_cents(
+                r"(?:Beginning|Starting)\s+Portfolio\s*(?:Value)?[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                required=True,
+            )
+            closing_portfolio = extract_cents(
+                r"(?:Ending|Closing)\s+Portfolio\s*(?:Value)?[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                required=True,
+            )
+            raw_tin = extract_cents(
+                r"Transfers\s+In[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                required=True,
+            )
+            transfers_in = abs(raw_tin) if raw_tin is not None else None
+
+            raw_tout = extract_cents(
+                r"Transfers\s+Out[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                required=True,
+            )
+            transfers_out = abs(raw_tout) if raw_tout is not None else None
+
+            income_dividends = extract_cents(
+                r"(?:Income\s*(?:and|&)?\s*Dividends|Dividends\s*(?:and|&)?\s*Income)[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                required=True,
+            )
+            realized_gains = extract_cents(
+                r"\bRealized\s+(?:Gain(?:s)?(?:/Loss(?:es)?)?|Loss(?:es)?|Gains/Losses)[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                required=True,
+            )
+            unrealized_gains = extract_cents(
+                r"\bUnrealized\s+(?:Gain(?:s)?(?:/Loss(?:es)?)?|Loss(?:es)?|Gains/Losses)[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                required=True,
+            )
+
+        summary = BrokerageSummary(
+            statement_id=extraction.run.run_id,
+            opening_cash_cents=opening_cash,
+            closing_cash_cents=closing_cash,
+            opening_portfolio_cents=opening_portfolio,
+            closing_portfolio_cents=closing_portfolio,
+            transfers_in_cents=transfers_in,
+            transfers_out_cents=transfers_out,
+            income_dividends_cents=income_dividends,
+            realized_gains_cents=realized_gains,
+            unrealized_gains_cents=unrealized_gains,
+        )
+
+        return opening_cash, closing_cash, summary
+
+    # ------------------------------------------------------------------
+    # Canonical Transaction Extraction
+    # ------------------------------------------------------------------
+
+    def parse_transactions(
+        self, extraction: RawExtraction, statement_id: UUID
+    ) -> list[CanonicalTransaction]:
+        """Extract canonical transactions with signed primary deltas."""
+        all_text = "\n".join(p.page_text for p in extraction.pages)
+        txns: list[CanonicalTransaction] = []
+
+        section_match = re.search(
+            r"(?:TRANSACTION ACTIVITY|TRANSACTION DETAILS|CASH TRANSACTIONS)\s*\n(.*?)(?:END OF STATEMENT|\Z)",
+            all_text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not section_match:
+            raise MissingSectionError(
+                "Could not locate TRANSACTION ACTIVITY section block."
+            )
+
+        section_body = section_match.group(1).strip()
+        lines = [line.strip() for line in section_body.split("\n") if line.strip()]
+
+        if not lines:
+            return []
+
+        header_line = lines[0]
+        headers = [
+            h.strip() for h in re.split(r"\s{2,}|\t|\|", header_line) if h.strip()
+        ]
+        data_lines = lines[1:]
+
+        schema = self.declared_schemas()[0]
+        rows: list[list[str]] = []
+        for line in data_lines:
+            parts = [p.strip() for p in re.split(r"\s{2,}|\t|\|", line) if p.strip()]
+            rows.append(parts)
+
+        validate_table_against_schema(headers, rows, schema)
+
+        for row in rows:
+            raw_date, raw_desc, raw_amt = row
+
+            def parse_row_date(date_str: str) -> datetime.date:
+                for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+                    try:
+                        return datetime.datetime.strptime(date_str, fmt).date()  # noqa: DTZ007
+                    except ValueError:
+                        pass
+                raise TokenError(f"Invalid date format in row: {date_str}")
+
+            post_date = parse_row_date(raw_date)
+
+            has_explicit_sign = raw_amt.startswith(("+", "-")) or (
+                raw_amt.startswith("(") and raw_amt.endswith(")")
+            )
+            desc_upper = raw_desc.upper()
+
+            if "DIVIDEND" in desc_upper or "DIV " in desc_upper:
+                category = TransactionCategory.DIVIDEND
+                inferred_positive = True
+            elif "INTEREST" in desc_upper:
+                category = TransactionCategory.INTEREST
+                inferred_positive = True
+            elif (
+                "DEPOSIT" in desc_upper
+                or "WIRE IN" in desc_upper
+                or "TRANSFER IN" in desc_upper
+            ):
+                category = TransactionCategory.TRANSFER_IN
+                inferred_positive = True
+            elif (
+                "WITHDRAWAL" in desc_upper
+                or "WIRE OUT" in desc_upper
+                or "TRANSFER OUT" in desc_upper
+            ):
+                category = TransactionCategory.TRANSFER_OUT
+                inferred_positive = False
+            elif "FEE" in desc_upper:
+                category = TransactionCategory.FEE
+                inferred_positive = False
+            elif (
+                "BOUGHT" in desc_upper
+                or "PURCHASE" in desc_upper
+                or "BUY" in desc_upper
+            ):
+                category = TransactionCategory.TRADE_CASH
+                inferred_positive = False
+            elif "SOLD" in desc_upper or "SALE" in desc_upper or "SELL" in desc_upper:
+                category = TransactionCategory.TRADE_CASH
+                inferred_positive = True
+            elif "CREDIT" in desc_upper:
+                category = TransactionCategory.OTHER_CREDIT
+                inferred_positive = True
+            else:
+                category = (
+                    TransactionCategory.OTHER_CREDIT
+                    if raw_amt.startswith("+")
+                    else TransactionCategory.OTHER_DEBIT
+                )
+                inferred_positive = raw_amt.startswith("+")
+
+            if not has_explicit_sign and "AMBIGUOUS" in desc_upper:
+                raise TokenError("Ambiguous amount sign without polarity indicator.")
+
+            amount_cents = parse_currency_to_cents(raw_amt)
+            if not has_explicit_sign:
+                amount_cents = (
+                    abs(amount_cents) if inferred_positive else -abs(amount_cents)
+                )
+
+            validate_category_sign(self.account_domain, category, amount_cents)
+
+            txns.append(
+                CanonicalTransaction(
+                    statement_id=statement_id,
+                    post_date=post_date,
+                    amount_cents=amount_cents,
+                    description=raw_desc,
+                    transaction_category=category,
+                )
+            )
+
+        return txns
+
+    # ------------------------------------------------------------------
+    # Backwards-compatible Legacy Extraction Entry Point
     # ------------------------------------------------------------------
 
     def parse(self, file_path: Path) -> RawStatement:
-        """Extract cash transactions from a Schwab statement PDF."""
+        """Extract cash transactions from a Schwab statement PDF into legacy RawStatement."""
         resolved: Path = file_path.resolve()
         if not resolved.is_file():
             raise FileNotFoundError(f"Statement file not found: {resolved}")
 
         logger.info(
-            "Starting Schwab statement extraction", extra={"file": str(resolved)}
+            "Starting Schwab statement extraction",
+            extra={"file": str(resolved)},
         )
 
         try:
@@ -136,12 +456,15 @@ class SchwabAdapter(StatementAdapter):
 
         logger.info(
             "Schwab statement extraction successful",
-            extra={"file": str(resolved), "transactions_count": len(transactions)},
+            extra={
+                "file": str(resolved),
+                "transactions_count": len(transactions),
+            },
         )
         return statement
 
     # ------------------------------------------------------------------
-    # Summary extraction
+    # Legacy Summary Extraction Helpers
     # ------------------------------------------------------------------
 
     def _extract_summary(self, pdf: pdfplumber.PDF) -> StatementSummary:
@@ -218,7 +541,7 @@ class SchwabAdapter(StatementAdapter):
         )
 
     # ------------------------------------------------------------------
-    # Transaction extraction
+    # Legacy Transaction Extraction Helpers
     # ------------------------------------------------------------------
 
     def _extract_transactions(
@@ -250,7 +573,8 @@ class SchwabAdapter(StatementAdapter):
                     amt_idx = headers.index("amount")
                 except ValueError as exc:
                     logger.error(
-                        "Transaction table headers drifted", extra={"headers": headers}
+                        "Transaction table headers drifted",
+                        extra={"headers": headers},
                     )
                     raise SchemaDriftError(
                         f"Missing required columns in table: {headers}"
@@ -271,14 +595,15 @@ class SchwabAdapter(StatementAdapter):
                     raw_amt = str(row[amt_idx] or "").strip()
 
                     if not raw_date and not raw_amt and raw_desc:
-                        # Recognized as a sub-header or visual divider
                         continue
 
-                    # 1. Parse Date
+                    # Parse Date
                     txn_date = None
                     for fmt in ("%m/%d/%Y", "%m/%d/%y"):
                         try:
-                            txn_date = datetime.datetime.strptime(raw_date, fmt).date()  # noqa: DTZ007
+                            txn_date = datetime.datetime.strptime(  # noqa: DTZ007
+                                raw_date, fmt
+                            ).date()
                             break
                         except ValueError:
                             continue
@@ -293,17 +618,13 @@ class SchwabAdapter(StatementAdapter):
                         )
 
                     if not (period_start <= txn_date <= period_end):
-                        # Filter transactions strictly outside the statement period
-                        # We don't fail here since statements often include pending/subsequent transactions
                         continue
 
-                    # 2. Determine Transaction Type (Debit/Credit)
                     is_debit = raw_amt.startswith(("-", "("))
                     txn_type = (
                         TransactionType.DEBIT if is_debit else TransactionType.CREDIT
                     )
 
-                    # 3. Parse Amount
                     try:
                         amount_cents = self._parse_cents(raw_amt)
                     except ValueError as exc:
@@ -315,7 +636,6 @@ class SchwabAdapter(StatementAdapter):
                             f"Invalid amount format in transaction row: '{raw_amt}'"
                         ) from exc
 
-                    # 4. Extract Category
                     category = None
                     if cat_idx is not None and len(row) > cat_idx:
                         category = str(row[cat_idx] or "").strip() or None
@@ -332,10 +652,6 @@ class SchwabAdapter(StatementAdapter):
 
         transactions.sort(key=lambda t: t.date)
         return transactions
-
-    # ------------------------------------------------------------------
-    # Currency parsing
-    # ------------------------------------------------------------------
 
     def _parse_cents(self, amount_str: str) -> int:
         """Convert a raw currency string into a positive integer cent value."""

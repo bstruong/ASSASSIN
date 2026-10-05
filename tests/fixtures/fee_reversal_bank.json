@@ -1,0 +1,15 @@
+{
+  "institution": "Standard Bank",
+  "account_type": "Checking",
+  "account_mask": "*1234",
+  "statement_period": "2025-01-01 to 2025-01-31",
+  "summary": {
+    "starting_balance": "$1,000.00",
+    "deposits": "$0.00",
+    "withdrawals": "$0.00",
+    "interest_paid": "$0.00",
+    "fees_charged": "$0.00",
+    "ending_balance": "$1,000.00"
+  },
+  "raw_text": "STANDARD BANK\nChecking Account Number: *1234\nStatement Period: 2025-01-01 to 2025-01-31\n\nACCOUNT SUMMARY\nStarting Balance: $1,000.00\nDeposits and Additions: $0.00\nWithdrawals and Subtractions: $0.00\nInterest Paid: $0.00\nFees Charged: $0.00\nEnding Balance: $1,000.00\n\nTRANSACTION DETAILS\nDate    Description    Amount    Balance\n2025-01-10    Overdraft Fee    -$15.00    $985.00\n2025-01-11    Overdraft Fee Refund    +$15.00    $1,000.00\nEND OF STATEMENT"
+}

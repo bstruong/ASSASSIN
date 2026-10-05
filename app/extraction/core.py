@@ -210,7 +210,7 @@ def validate_table_against_schema(
             )
 
 
-def parse_currency_to_cents(amount_str: str) -> int:
+def parse_currency_to_cents(amount_str: str, allow_zero: bool = False) -> int:
     """Parse a currency string into signed integer cents.
 
     Requirements:
@@ -218,10 +218,11 @@ def parse_currency_to_cents(amount_str: str) -> int:
     - Disallows non-2 decimal places (e.g. '12', '12.3', '12.345').
     - Disallows float conversion.
     - Handles standard accounting negative notations: '($12.34)', '-$12.34', '$-12.34'.
-    - Disallows zero amount (raises TokenError).
+    - Disallows zero amount unless allow_zero is explicitly True.
 
     Args:
         amount_str: Raw text representing currency.
+        allow_zero: Whether $0.00 is allowed (e.g. for statement summary totals).
 
     Returns:
         Signed integer cents.
@@ -242,18 +243,22 @@ def parse_currency_to_cents(amount_str: str) -> int:
         is_negative = True
         cleaned = cleaned[1:-1].strip()
 
-    # Check for minus sign
+    # Check for minus sign or plus sign
     if cleaned.startswith("-"):
         is_negative = True
+        cleaned = cleaned[1:].strip()
+    elif cleaned.startswith("+"):
         cleaned = cleaned[1:].strip()
 
     # Strip currency symbol
     if cleaned.startswith("$"):
         cleaned = cleaned[1:].strip()
 
-    # Check for embedded minus after currency symbol: $-12.34
+    # Check for embedded minus or plus after currency symbol: $-12.34 or $+12.34
     if cleaned.startswith("-"):
         is_negative = True
+        cleaned = cleaned[1:].strip()
+    elif cleaned.startswith("+"):
         cleaned = cleaned[1:].strip()
 
     # Remove commas
@@ -283,7 +288,7 @@ def parse_currency_to_cents(amount_str: str) -> int:
         )
 
     cents = int(dollars_part) * 100 + int(cents_part)
-    if cents == 0:
+    if cents == 0 and not allow_zero:
         raise TokenError("Zero amount is not permitted.")
 
     return -cents if is_negative else cents

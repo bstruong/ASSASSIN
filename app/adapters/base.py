@@ -126,6 +126,7 @@ class CreditCardStatementAdapter(StatementAdapter, abc.ABC):
 
     account_domain = AccountDomain.REVOLVING_CREDIT
     account_types = frozenset({AccountType.CREDIT_CARD})
+    requires_payment_due_date: bool = True
 
     @abc.abstractmethod
     def parse_header(
@@ -152,6 +153,7 @@ class CreditCardStatementAdapter(StatementAdapter, abc.ABC):
     ]:
         """Orchestrate credit card parsing, schema verification, and reconciliation."""
         from app.extraction.core import validate_extraction_against_schemas
+        from app.models.exceptions import MissingSectionError
         from app.pipeline.validator import (
             validate_credit_card_reconciliation,
             validate_universal_reconciliation,
@@ -168,6 +170,10 @@ class CreditCardStatementAdapter(StatementAdapter, abc.ABC):
         )
 
         opening_cents, closing_cents, summary = self.parse_summary(extraction)
+        if self.requires_payment_due_date and summary.payment_due_date is None:
+            raise MissingSectionError(
+                "Payment due date is required on card statements."
+            )
         statement = CanonicalStatement(
             account_id=account.account_id,
             run_id=extraction.run.run_id,

@@ -364,3 +364,31 @@ No real customer PDFs. Cell strings in fixtures; expected `*_cents` as JSON inte
 - [app/adapters/base.py](app/adapters/base.py) splits into the three abstract subclasses above; Schwab becomes `InvestmentStatementAdapter`.
 - Uncommitted Schwab `continue` on bad rows remains **out of contract** and must not be generalized to bank/card parsers.
 
+
+---
+
+## Phase 2: Front-End Architecture & Human-AI Interaction (The Dual-Model HTMX & Tiered MCP Dashboard)
+
+With the foundational 9-step pipeline complete, the system expands to include a privacy-first, dual-model human-AI interface.
+
+### Distributed Deployment Architecture
+To maximize both performance and privacy, the architecture supports a split deployment:
+1. **The Vault (HomeLab/Server):** Hosts the `assassin` PostgreSQL database, the FastAPI backend, and the HTMX frontend. This ensures 24/7 uptime and centralized, secure storage of financial ledgers.
+2. **The AI Brain (Workstation/Local GPU):** Hosts the Local LLM (e.g., Ollama running Llama 3 or Gemma 2) on a dedicated GPU (e.g., RTX 3060). The FastAPI backend on the HomeLab communicates with this inference server via the local network (`http://<workstation-ip>:11434`), perfectly offloading the heavy compute.
+
+### The "Trust but Verify" Dual-Model Interface
+
+1. **The HTMX Dashboard (Human Interface):**
+   - Built with Jinja2 templates and HTMX served directly from the FastAPI application.
+   - Provides a zero-JS framework for drag-and-drop PDF uploads (`hx-post`), live extraction status updates, and dual-pane ledger views.
+
+2. **The Tiered MCP Server (AI Interface):**
+   The FastAPI backend acts as a Model Context Protocol (MCP) server, exposing tools with strict tiering:
+   - **Tier 1 (Local-Only):** Tools like `get_raw_transactions()` or `search_statement_text()`. Only the local, air-gapped LLM is authorized to invoke these tools and view row-level PII data.
+   - **Tier 2 (Cloud-Safe):** Tools like `get_monthly_aggregates()` or `verify_portfolio_bridge()`. These tools execute `SUM()`, `COUNT()`, and `GROUP BY` logic at the SQL layer, ensuring zero PII egress. Cloud-based frontier models (e.g., Gemini Pro) are restricted to these tools.
+
+3. **The Audit Workflow:**
+   - The user queries their finances in the HTMX dashboard. The **Local LLM** invokes Tier 1 tools to fetch raw ledgers and displays an itemized HTML table.
+   - The user clicks **"Verify & Analyze with Frontier Model"**. 
+   - The HTMX frontend posts the *sanitized aggregate data* to a dedicated FastAPI route (`/chat/frontier/audit`). 
+   - A middleware guarantees zero-PII egress, and the **Frontier LLM** performs deep reasoning, trend analysis, and mathematical verification on the anonymous aggregates, swapping its insights into the dashboard via HTMX.

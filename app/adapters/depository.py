@@ -57,7 +57,7 @@ class StandardDepositoryAdapter(DepositoryStatementAdapter):
                 return "STANDARD BANK" in first_text and (
                     "CHECKING" in first_text or "SAVINGS" in first_text
                 )
-        except (OSError, ValueError):
+        except Exception:  # noqa: BLE001
             return False
 
     def declared_schemas(self) -> Sequence[TableSchema]:

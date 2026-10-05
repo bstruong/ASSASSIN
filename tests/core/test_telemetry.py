@@ -3,8 +3,9 @@
 import io
 import json
 import logging
+import os
 
-from app.core.telemetry import JSONFormatter
+from app.core.telemetry import JSONFormatter, configure_telemetry
 
 
 def test_json_formatter_strips_pii_and_financials():

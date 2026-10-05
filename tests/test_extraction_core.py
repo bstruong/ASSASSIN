@@ -185,6 +185,11 @@ class TestParseCurrencyToCents:
         with pytest.raises(TokenError, match="non-empty string"):
             parse_currency_to_cents(123)  # type: ignore[arg-type]
 
+    def test_currency_edge_cases(self) -> None:
+        assert parse_currency_to_cents("$+12.34") == 1234
+        assert parse_currency_to_cents("+12.34") == 1234
+        assert parse_currency_to_cents("$0.00", allow_zero=True) == 0
+
     def test_rejects_empty_dollar_part(self) -> None:
         with pytest.raises(TokenError, match="non-digit or empty dollar component"):
             parse_currency_to_cents(".50")
@@ -230,14 +235,18 @@ class TestExtractPdfToRaw:
             extract_pdf_to_raw(dummy_file, "adapter", "1.0")
 
     def test_synthetic_pdf_extraction(self, tmp_path) -> None:
-        import pypdfium2 as pdfium
+        from reportlab.pdfgen import canvas
 
         from app.extraction.core import extract_pdf_to_raw
 
         pdf_path = tmp_path / "synthetic.pdf"
-        doc = pdfium.PdfDocument.new()
-        doc.new_page(width=595, height=842)
-        doc.save(str(pdf_path))
+        c = canvas.Canvas(str(pdf_path))
+        c.drawString(100, 750, "STANDARD BANK STATEMENT")
+        # Draw table lines
+        c.rect(100, 600, 300, 100)
+        c.line(100, 650, 400, 650)
+        c.line(250, 600, 250, 700)
+        c.save()
 
         extraction = extract_pdf_to_raw(pdf_path, "test_adapter", "1.0.0")
         assert extraction.payload.original_basename == "synthetic.pdf"
@@ -246,6 +255,7 @@ class TestExtractPdfToRaw:
         assert extraction.run.status == RunStatus.EXTRACTED
         assert len(extraction.pages) == 1
         assert extraction.pages[0].page_number == 1
+<<<<<<< HEAD
 
     def test_mocked_pdf_words_and_tables_extraction(self, tmp_path) -> None:
         from unittest.mock import MagicMock, patch
@@ -335,3 +345,7 @@ class TestExtractPdfToRaw:
         assert c2.table_index == 0
         assert c2.row_index == 1
         assert c2.col_index == 0
+=======
+        assert len(extraction.pages[0].tokens) > 0
+        assert any(t.token_kind == "word" for t in extraction.pages[0].tokens)
+>>>>>>> 0a8f9d2 (feat: implement exclusive statement adapter registry across domains (Step 7))

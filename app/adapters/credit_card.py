@@ -57,7 +57,7 @@ class StandardCreditCardAdapter(CreditCardStatementAdapter):
                 return "STANDARD CARD" in first_text and (
                     "CREDIT CARD" in first_text or "CARD STATEMENT" in first_text
                 )
-        except (OSError, ValueError):
+        except Exception:  # noqa: BLE001
             return False
 
     def declared_schemas(self) -> Sequence[TableSchema]:

@@ -538,6 +538,49 @@ def get_raw_pages(conn: psycopg.Connection, run_id: UUID) -> list[RawPage]:
     return pages
 
 
+def get_run_statements(
+    conn: psycopg.Connection, run_id: UUID
+) -> list[tuple[Account, CanonicalStatement, int]]:
+    """Retrieve accounts, statements, and transaction counts for an extraction run."""
+    query = """
+    SELECT a.account_id, a.institution, a.account_mask, a.account_domain, a.account_type, a.currency,
+           s.statement_id, s.raw_payload_id, s.statement_start_date, s.statement_end_date,
+           s.opening_balance_cents, s.closing_balance_cents, s.net_change_cents,
+           (SELECT COUNT(*) FROM transactions t WHERE t.statement_id = s.statement_id) AS txn_count
+    FROM statements s
+    JOIN accounts a ON s.account_id = a.account_id
+    WHERE s.run_id = %s
+    ORDER BY s.statement_start_date ASC;
+    """
+    results: list[tuple[Account, CanonicalStatement, int]] = []
+    with conn.cursor() as cur:
+        cur.execute(query, (str(run_id),))
+        rows = cur.fetchall()
+        for r in rows:
+            acc = Account(
+                account_id=UUID(str(r[0])),
+                institution=str(r[1]),
+                account_mask=str(r[2]),
+                account_domain=AccountDomain(str(r[3])),
+                account_type=AccountType(str(r[4])),
+                currency=CurrencyCode(str(r[5])),
+            )
+            stmt = CanonicalStatement(
+                statement_id=UUID(str(r[6])),
+                account_id=UUID(str(r[0])),
+                run_id=run_id,
+                raw_payload_id=UUID(str(r[7])),
+                statement_start_date=r[8],
+                statement_end_date=r[9],
+                opening_balance_cents=int(r[10]),
+                closing_balance_cents=int(r[11]),
+                net_change_cents=int(r[12]),
+            )
+            txn_count = int(r[13])
+            results.append((acc, stmt, txn_count))
+    return results
+
+
 def get_canonical_statement(
     conn: psycopg.Connection, statement_id: UUID
 ) -> (

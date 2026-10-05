@@ -357,7 +357,7 @@ class StandardCombinedDepositoryAdapter(CombinedStatementAdapter):
         for line in lines:
             if line.upper().startswith("DATE") or "DESCRIPTION" in line.upper():
                 continue
-            parts = re.split(r"\s{2,}|\t+", line)
+            parts = [p.strip() for p in re.split(r"\s{2,}|\t+|\|", line) if p.strip()]
             if len(parts) < 3:
                 continue
 

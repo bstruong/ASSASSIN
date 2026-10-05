@@ -152,7 +152,7 @@ class TestCreditCardAdapter:
             tokens=[],
         )
         with pytest.raises(
-            InvariantError, match="minimum_payment_due_cents must be >= 0"
+            InvariantError, match=r"^minimum_payment_due_cents must be >= 0$"
         ):
             self.adapter.parse_canonical(extraction)
 

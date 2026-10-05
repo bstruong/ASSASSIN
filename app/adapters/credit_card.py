@@ -107,7 +107,7 @@ class StandardCreditCardAdapter(CreditCardStatementAdapter):
                 try:
                     return datetime.datetime.strptime(date_str, fmt).date()  # noqa: DTZ007
                 except ValueError:
-                    pass
+                    continue
             raise TokenError(f"Invalid date format: {date_str}")
 
         start_date = parse_date(date_match.group(1))
@@ -177,7 +177,7 @@ class StandardCreditCardAdapter(CreditCardStatementAdapter):
                     ).date()
                     break
                 except ValueError:
-                    pass
+                    continue
 
         if self.requires_payment_due_date and due_date is None:
             raise MissingSectionError(
@@ -262,7 +262,7 @@ class StandardCreditCardAdapter(CreditCardStatementAdapter):
                     try:
                         return datetime.datetime.strptime(date_str, fmt).date()  # noqa: DTZ007
                     except ValueError:
-                        pass
+                        continue
                 raise TokenError(f"Invalid date format in row: {date_str}")
 
             post_date = parse_row_date(raw_date)

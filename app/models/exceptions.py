@@ -95,3 +95,15 @@ class AdapterRegistryError(PipelineError):
     - Two or more adapters' ``matches()`` both return ``True`` and
       neither is a declared combined-statement adapter.
     """
+
+
+class PersistenceError(PipelineError):
+    """A database persistence or relational invariant violation occurred.
+
+    Raised when:
+
+    - Statement sidecar does not match account domain.
+    - Denormalized raw_payload_id contradicts extraction_run.
+    - Statement opening or closing balance contradicts sidecar totals.
+    - Foreign key or schema violation during persistence.
+    """

@@ -33,6 +33,7 @@ def extract_pdf_to_raw(
     file_path: Path,
     adapter_id: str,
     adapter_version: str,
+    original_basename: str | None = None,
 ) -> RawExtraction:
     """Extract raw pages and tokens from a PDF file with integer geometry.
 
@@ -40,6 +41,7 @@ def extract_pdf_to_raw(
         file_path: Path to the target PDF file.
         adapter_id: Identifier of the invoking adapter.
         adapter_version: Version string of the invoking adapter.
+        original_basename: Optional original filename override.
 
     Returns:
         A populated RawExtraction instance.
@@ -62,7 +64,9 @@ def extract_pdf_to_raw(
     payload = RawPayload(
         content_sha256=sha256_hash,
         byte_length=byte_length,
-        original_basename=resolved.name,
+        original_basename=original_basename
+        if original_basename is not None
+        else resolved.name,
     )
 
     run = ExtractionRun(

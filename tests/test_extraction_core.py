@@ -255,7 +255,8 @@ class TestExtractPdfToRaw:
         assert extraction.run.status == RunStatus.EXTRACTED
         assert len(extraction.pages) == 1
         assert extraction.pages[0].page_number == 1
-<<<<<<< HEAD
+        assert len(extraction.pages[0].tokens) > 0
+        assert any(t.token_kind == "word" for t in extraction.pages[0].tokens)
 
     def test_mocked_pdf_words_and_tables_extraction(self, tmp_path) -> None:
         from unittest.mock import MagicMock, patch
@@ -345,7 +346,3 @@ class TestExtractPdfToRaw:
         assert c2.table_index == 0
         assert c2.row_index == 1
         assert c2.col_index == 0
-=======
-        assert len(extraction.pages[0].tokens) > 0
-        assert any(t.token_kind == "word" for t in extraction.pages[0].tokens)
->>>>>>> 0a8f9d2 (feat: implement exclusive statement adapter registry across domains (Step 7))

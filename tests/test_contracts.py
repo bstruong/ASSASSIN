@@ -85,18 +85,32 @@ class TestAccountTypeMembers:
 class TestTransactionCategoryMembers:
     """TransactionCategory has exactly 18 members (union of all domains)."""
 
-    EXPECTED_VALUES: frozenset[str] = frozenset({
-        # Depository only
-        "deposit", "withdrawal", "interest_paid",
-        # Card only
-        "purchase", "payment", "credit",
-        "cash_advance", "balance_transfer", "interest_charged",
-        # Brokerage only
-        "dividend", "interest", "transfer_in",
-        "transfer_out", "trade_cash",
-        # Shared
-        "fee", "fee_reversal", "other_credit", "other_debit",
-    })
+    EXPECTED_VALUES: frozenset[str] = frozenset(
+        {
+            # Depository only
+            "deposit",
+            "withdrawal",
+            "interest_paid",
+            # Card only
+            "purchase",
+            "payment",
+            "credit",
+            "cash_advance",
+            "balance_transfer",
+            "interest_charged",
+            # Brokerage only
+            "dividend",
+            "interest",
+            "transfer_in",
+            "transfer_out",
+            "trade_cash",
+            # Shared
+            "fee",
+            "fee_reversal",
+            "other_credit",
+            "other_debit",
+        }
+    )
 
     def test_member_count(self) -> None:
         assert len(TransactionCategory) == 18
@@ -215,6 +229,10 @@ class TestDomainForAccountType:
     ) -> None:
         assert domain_for_account_type(account_type) == expected_domain
 
+    def test_reverse_lookup_invalid_raises(self) -> None:
+        with pytest.raises(ValueError, match="not found in any domain"):
+            domain_for_account_type("invalid")  # type: ignore[arg-type]
+
 
 # =====================================================================
 # §3  Domain ↔ TransactionCategory consistency
@@ -237,45 +255,51 @@ class TestDomainCategoryMapping:
     # --- Depository -------------------------------------------------------
 
     def test_depository_categories(self) -> None:
-        expected = frozenset({
-            TransactionCategory.DEPOSIT,
-            TransactionCategory.WITHDRAWAL,
-            TransactionCategory.INTEREST_PAID,
-            TransactionCategory.FEE,
-            TransactionCategory.FEE_REVERSAL,
-            TransactionCategory.OTHER_CREDIT,
-            TransactionCategory.OTHER_DEBIT,
-        })
+        expected = frozenset(
+            {
+                TransactionCategory.DEPOSIT,
+                TransactionCategory.WITHDRAWAL,
+                TransactionCategory.INTEREST_PAID,
+                TransactionCategory.FEE,
+                TransactionCategory.FEE_REVERSAL,
+                TransactionCategory.OTHER_CREDIT,
+                TransactionCategory.OTHER_DEBIT,
+            }
+        )
         assert DOMAIN_CATEGORIES[AccountDomain.DEPOSITORY] == expected
 
     # --- Revolving credit -------------------------------------------------
 
     def test_revolving_credit_categories(self) -> None:
-        expected = frozenset({
-            TransactionCategory.PURCHASE,
-            TransactionCategory.PAYMENT,
-            TransactionCategory.CREDIT,
-            TransactionCategory.CASH_ADVANCE,
-            TransactionCategory.BALANCE_TRANSFER,
-            TransactionCategory.FEE,
-            TransactionCategory.INTEREST_CHARGED,
-            TransactionCategory.FEE_REVERSAL,
-        })
+        expected = frozenset(
+            {
+                TransactionCategory.PURCHASE,
+                TransactionCategory.PAYMENT,
+                TransactionCategory.CREDIT,
+                TransactionCategory.CASH_ADVANCE,
+                TransactionCategory.BALANCE_TRANSFER,
+                TransactionCategory.FEE,
+                TransactionCategory.INTEREST_CHARGED,
+                TransactionCategory.FEE_REVERSAL,
+            }
+        )
         assert DOMAIN_CATEGORIES[AccountDomain.REVOLVING_CREDIT] == expected
 
     # --- Brokerage --------------------------------------------------------
 
     def test_brokerage_categories(self) -> None:
-        expected = frozenset({
-            TransactionCategory.DIVIDEND,
-            TransactionCategory.INTEREST,
-            TransactionCategory.TRANSFER_IN,
-            TransactionCategory.TRANSFER_OUT,
-            TransactionCategory.FEE,
-            TransactionCategory.TRADE_CASH,
-            TransactionCategory.OTHER_CREDIT,
-            TransactionCategory.OTHER_DEBIT,
-        })
+        expected = frozenset(
+            {
+                TransactionCategory.DIVIDEND,
+                TransactionCategory.INTEREST,
+                TransactionCategory.TRANSFER_IN,
+                TransactionCategory.TRANSFER_OUT,
+                TransactionCategory.FEE,
+                TransactionCategory.TRADE_CASH,
+                TransactionCategory.OTHER_CREDIT,
+                TransactionCategory.OTHER_DEBIT,
+            }
+        )
         assert DOMAIN_CATEGORIES[AccountDomain.CUSTODIAL_BROKERAGE] == expected
 
     # --- Cross-domain: fee is shared --------------------------------------
@@ -319,9 +343,7 @@ class TestSignRuleCompleteness:
     """
 
     @pytest.mark.parametrize("domain", list(AccountDomain))
-    def test_positive_and_negative_are_disjoint(
-        self, domain: AccountDomain
-    ) -> None:
+    def test_positive_and_negative_are_disjoint(self, domain: AccountDomain) -> None:
         pos = POSITIVE_DELTA_CATEGORIES[domain]
         neg = NEGATIVE_DELTA_CATEGORIES[domain]
         overlap = pos & neg
@@ -343,9 +365,7 @@ class TestSignRuleCompleteness:
         assert pos | neg | either == DOMAIN_CATEGORIES[domain]
 
     @pytest.mark.parametrize("domain", list(AccountDomain))
-    def test_sign_sets_are_subsets_of_domain(
-        self, domain: AccountDomain
-    ) -> None:
+    def test_sign_sets_are_subsets_of_domain(self, domain: AccountDomain) -> None:
         assert POSITIVE_DELTA_CATEGORIES[domain] <= DOMAIN_CATEGORIES[domain]
         assert NEGATIVE_DELTA_CATEGORIES[domain] <= DOMAIN_CATEGORIES[domain]
 
@@ -383,9 +403,7 @@ class TestSignRuleSpecificCases:
         )
 
     def test_depository_fee_negative(self) -> None:
-        validate_category_sign(
-            AccountDomain.DEPOSITORY, TransactionCategory.FEE, -2500
-        )
+        validate_category_sign(AccountDomain.DEPOSITORY, TransactionCategory.FEE, -2500)
 
     def test_depository_fee_reversal_positive(self) -> None:
         validate_category_sign(
@@ -517,9 +535,7 @@ class TestSignRuleSpecificCases:
     # --- Zero amount always fails ----------------------------------------
 
     @pytest.mark.parametrize("domain", list(AccountDomain))
-    def test_zero_amount_raises_value_error(
-        self, domain: AccountDomain
-    ) -> None:
+    def test_zero_amount_raises_value_error(self, domain: AccountDomain) -> None:
         # Pick any valid category for this domain.
         category = next(iter(DOMAIN_CATEGORIES[domain]))
         with pytest.raises(ValueError, match="non-zero"):
@@ -536,19 +552,22 @@ class TestFeeSignCrossDomain:
     """
 
     def test_depository_fee_must_be_negative(self) -> None:
-        assert TransactionCategory.FEE in NEGATIVE_DELTA_CATEGORIES[
-            AccountDomain.DEPOSITORY
-        ]
+        assert (
+            TransactionCategory.FEE
+            in NEGATIVE_DELTA_CATEGORIES[AccountDomain.DEPOSITORY]
+        )
 
     def test_card_fee_must_be_positive(self) -> None:
-        assert TransactionCategory.FEE in POSITIVE_DELTA_CATEGORIES[
-            AccountDomain.REVOLVING_CREDIT
-        ]
+        assert (
+            TransactionCategory.FEE
+            in POSITIVE_DELTA_CATEGORIES[AccountDomain.REVOLVING_CREDIT]
+        )
 
     def test_brokerage_fee_must_be_negative(self) -> None:
-        assert TransactionCategory.FEE in NEGATIVE_DELTA_CATEGORIES[
-            AccountDomain.CUSTODIAL_BROKERAGE
-        ]
+        assert (
+            TransactionCategory.FEE
+            in NEGATIVE_DELTA_CATEGORIES[AccountDomain.CUSTODIAL_BROKERAGE]
+        )
 
 
 # =====================================================================
@@ -572,9 +591,7 @@ class TestExceptionHierarchy:
         assert issubclass(PipelineError, Exception)
 
     @pytest.mark.parametrize("exc_cls", ALL_EXCEPTIONS)
-    def test_subclass_of_pipeline_error(
-        self, exc_cls: type[PipelineError]
-    ) -> None:
+    def test_subclass_of_pipeline_error(self, exc_cls: type[PipelineError]) -> None:
         assert issubclass(exc_cls, PipelineError)
 
     @pytest.mark.parametrize("exc_cls", ALL_EXCEPTIONS)

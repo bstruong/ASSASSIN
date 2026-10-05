@@ -109,6 +109,8 @@ class DepositoryStatementAdapter(StatementAdapter, abc.ABC):
             net_change_cents=closing_cents - opening_cents,
         )
 
+        summary = summary.model_copy(update={"statement_id": statement.statement_id})
+
         # 4. Domain transaction parsing
         transactions = self.parse_transactions(extraction, statement.statement_id)
 
@@ -185,6 +187,8 @@ class CreditCardStatementAdapter(StatementAdapter, abc.ABC):
             net_change_cents=closing_cents - opening_cents,
         )
 
+        summary = summary.model_copy(update={"statement_id": statement.statement_id})
+
         transactions = self.parse_transactions(extraction, statement.statement_id)
 
         validate_universal_reconciliation(
@@ -254,6 +258,8 @@ class InvestmentStatementAdapter(StatementAdapter, abc.ABC):
             closing_balance_cents=closing_cents,
             net_change_cents=closing_cents - opening_cents,
         )
+
+        summary = summary.model_copy(update={"statement_id": statement.statement_id})
 
         transactions = self.parse_transactions(extraction, statement.statement_id)
 

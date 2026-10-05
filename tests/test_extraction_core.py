@@ -177,6 +177,24 @@ class TestParseCurrencyToCents:
         with pytest.raises(TokenError):
             parse_currency_to_cents("$12.ab")
 
+    def test_rejects_invalid_types_and_empty(self) -> None:
+        with pytest.raises(TokenError, match="non-empty string"):
+            parse_currency_to_cents("")
+        with pytest.raises(TokenError, match="non-empty string"):
+            parse_currency_to_cents(None)  # type: ignore[arg-type]
+        with pytest.raises(TokenError, match="non-empty string"):
+            parse_currency_to_cents(123)  # type: ignore[arg-type]
+
+    def test_rejects_empty_dollar_part(self) -> None:
+        with pytest.raises(TokenError, match="non-digit or empty dollar component"):
+            parse_currency_to_cents(".50")
+        with pytest.raises(TokenError, match="non-digit or empty dollar component"):
+            parse_currency_to_cents("$.50")
+
+    def test_rejects_multiple_decimal_points(self) -> None:
+        with pytest.raises(TokenError, match="multiple decimal points"):
+            parse_currency_to_cents("1.2.3")
+
 
 class TestExtractPdfToRaw:
     """extract_pdf_to_raw loads pages and geometry into RawExtraction."""
@@ -195,6 +213,22 @@ class TestExtractPdfToRaw:
         with pytest.raises(ValueError, match="empty"):
             extract_pdf_to_raw(empty_file, "test", "1.0.0")
 
+    def test_empty_pdf_pages_raises_valueerror(self, tmp_path) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from app.extraction.core import extract_pdf_to_raw
+
+        dummy_file = tmp_path / "nopages.pdf"
+        dummy_file.write_bytes(b"%PDF-1.4 dummy")
+        mock_pdf = MagicMock()
+        mock_pdf.__enter__.return_value = mock_pdf
+        mock_pdf.pages = []
+        with (
+            patch("pdfplumber.open", return_value=mock_pdf),
+            pytest.raises(ValueError, match="PDF has no pages"),
+        ):
+            extract_pdf_to_raw(dummy_file, "adapter", "1.0")
+
     def test_synthetic_pdf_extraction(self, tmp_path) -> None:
         import pypdfium2 as pdfium
 
@@ -212,3 +246,92 @@ class TestExtractPdfToRaw:
         assert extraction.run.status == RunStatus.EXTRACTED
         assert len(extraction.pages) == 1
         assert extraction.pages[0].page_number == 1
+
+    def test_mocked_pdf_words_and_tables_extraction(self, tmp_path) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from app.extraction.core import extract_pdf_to_raw
+
+        dummy_file = tmp_path / "sample.pdf"
+        dummy_file.write_bytes(b"%PDF-1.4 dummy content")
+
+        mock_word1 = {
+            "text": "Deposit",
+            "x0": 10.5,
+            "top": 20.25,
+            "x1": 50.75,
+            "bottom": 30.1,
+        }
+        mock_word2 = {
+            "text": "ZeroWidth",
+            "x0": -5.0,
+            "top": -2.0,
+            "x1": -10.0,  # x1 < x0 -> clamps to x0_mp + 1
+            "bottom": -5.0,  # bottom < top -> clamps to y0_mp + 1
+        }
+
+        mock_table = MagicMock()
+        mock_row1 = MagicMock()
+        mock_row1.cells = [(10.0, 20.0, 100.0, 40.0), None]
+        mock_row2 = MagicMock()
+        mock_row2.cells = [(-1.0, -2.0, 0.0, 0.0)]
+        mock_table.rows = [mock_row1, mock_row2]
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "Page 1 Content Deposit"
+        mock_page.extract_words.return_value = [mock_word1, mock_word2]
+        mock_page.find_tables.return_value = [mock_table]
+
+        mock_pdf = MagicMock()
+        mock_pdf.__enter__.return_value = mock_pdf
+        mock_pdf.pages = [mock_page]
+
+        with patch("pdfplumber.open", return_value=mock_pdf):
+            extraction = extract_pdf_to_raw(dummy_file, "mock_adapter", "2.1.0")
+
+        assert extraction.run.adapter_id == "mock_adapter"
+        assert extraction.run.adapter_version == "2.1.0"
+        assert extraction.run.status == RunStatus.EXTRACTED
+        assert len(extraction.pages) == 1
+        page = extraction.pages[0]
+        assert page.page_number == 1
+        assert page.page_text == "Page 1 Content Deposit"
+        # 2 words + 2 valid cells (None skipped) = 4 tokens
+        assert len(page.tokens) == 4
+
+        w1 = page.tokens[0]
+        assert w1.token_kind == "word"
+        assert w1.token_text == "Deposit"
+        assert w1.x0_mp == 10500
+        assert w1.y0_mp == 20250
+        assert w1.x1_mp == 50750
+        assert w1.y1_mp == 30100
+
+        w2 = page.tokens[1]
+        assert w2.token_kind == "word"
+        assert w2.token_text == "ZeroWidth"
+        assert w2.x0_mp == 0
+        assert w2.y0_mp == 0
+        assert w2.x1_mp == 1
+        assert w2.y1_mp == 1
+
+        c1 = page.tokens[2]
+        assert c1.token_kind == "cell"
+        assert c1.token_text == ""
+        assert c1.x0_mp == 10000
+        assert c1.y0_mp == 20000
+        assert c1.x1_mp == 100000
+        assert c1.y1_mp == 40000
+        assert c1.table_index == 0
+        assert c1.row_index == 0
+        assert c1.col_index == 0
+
+        c2 = page.tokens[3]
+        assert c2.token_kind == "cell"
+        assert c2.x0_mp == 0
+        assert c2.y0_mp == 0
+        assert c2.x1_mp == 1
+        assert c2.y1_mp == 1
+        assert c2.table_index == 0
+        assert c2.row_index == 1
+        assert c2.col_index == 0

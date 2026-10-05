@@ -269,3 +269,20 @@ class InvestmentStatementAdapter(StatementAdapter, abc.ABC):
         validate_brokerage_reconciliation(statement, summary, transactions)
 
         return account, statement, summary, transactions
+
+
+class CombinedStatementAdapter(StatementAdapter, abc.ABC):
+    """Base adapter for multi-account aggregate statements emitting one statement per account."""
+
+    @abc.abstractmethod
+    def parse_canonical(
+        self, extraction: RawExtraction
+    ) -> Sequence[
+        tuple[
+            Account,
+            CanonicalStatement,
+            DepositorySummary | CreditCardSummary | BrokerageSummary,
+            list[CanonicalTransaction],
+        ]
+    ]:
+        """Extract and validate one statement bundle per account, adhering to all invariants."""

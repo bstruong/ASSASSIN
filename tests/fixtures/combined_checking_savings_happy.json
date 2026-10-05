@@ -1,0 +1,5 @@
+{
+  "institution": "Standard Bank",
+  "account_type": "Combined",
+  "raw_text": "STANDARD BANK\nCOMBINED ACCOUNT STATEMENT\nStatement Period: 2025-01-01 to 2025-01-31\nCombined Total Balance: $6,320.00\n\nChecking Account Number: *1234\nChecking Summary\nStarting Balance: $1,000.00\nDeposits: $300.00\nWithdrawals: $0.00\nFees: $5.00\nEnding Balance: $1,295.00\n\nSavings Account Number: *5678\nSavings Summary\nStarting Balance: $5,000.00\nDeposits: $0.00\nInterest Paid: $25.00\nWithdrawals: $0.00\nEnding Balance: $5,025.00\n\nCHECKING ACCOUNT SUMMARY\nCHECKING TRANSACTION DETAILS\nDate    Description    Amount    Balance\n2025-01-10    Payroll Direct Deposit    $300.00    $1,300.00\n2025-01-15    Monthly Maintenance Fee    -$5.00    $1,295.00\n\nSAVINGS ACCOUNT SUMMARY\nSAVINGS TRANSACTION DETAILS\nDate    Description    Amount    Balance\n2025-01-31    Interest Payment    $25.00    $5,025.00\n\nEND OF STATEMENT"
+}

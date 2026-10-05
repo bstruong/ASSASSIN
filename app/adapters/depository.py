@@ -54,9 +54,14 @@ class StandardDepositoryAdapter(DepositoryStatementAdapter):
                 if not pdf.pages:
                     return False
                 first_text = (pdf.pages[0].extract_text() or "").upper()
-                return "STANDARD BANK" in first_text and (
-                    "CHECKING" in first_text or "SAVINGS" in first_text
-                )
+                if "STANDARD BANK" not in first_text:
+                    return False
+                # Multi-account aggregate statements are exclusively handled by combined adapters
+                if "COMBINED" in first_text or (
+                    "CHECKING SUMMARY" in first_text and "SAVINGS SUMMARY" in first_text
+                ):
+                    return False
+                return "CHECKING" in first_text or "SAVINGS" in first_text
         except Exception:  # noqa: BLE001
             return False
 

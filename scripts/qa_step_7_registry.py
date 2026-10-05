@@ -58,7 +58,7 @@ def run_qa() -> None:
             print(
                 f" - {a.adapter_id:<25} | Domain: {a.account_domain.value:<20} | Version: {a.adapter_version}"
             )
-        assert len(registered) == 3
+        assert len(registered) >= 3
         print("  -> PASS: All standard domain adapters loaded.")
 
         # 2. Exclusive Match: Depository

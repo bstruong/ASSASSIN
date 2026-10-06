@@ -33,6 +33,10 @@ Any changes made to the codebase must strictly adhere to these invariants:
    - Logs must provide sufficient context to reconstruct the state leading up to an error without manual debugging.
    - Never log raw PII (account numbers, SSNs, personal identities) or unmasked financial amounts (`amount_cents`, `amount`).
 
+5. **Frontend Asset Integrity:**
+   - Agents are strictly forbidden from hallucinating cryptographic hashes (SRI, SHA, MD5) or UUIDs for frontend assets.
+   - You must either serve assets locally from `app/static/`, compute hashes programmatically, or omit them.
+
 ---
 
 ## Test-Driven Development (TDD) Mandate

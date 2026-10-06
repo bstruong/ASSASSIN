@@ -11,9 +11,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from app.api.dashboard import dashboard_api
@@ -69,6 +71,10 @@ def create_app() -> FastAPI:
     app.include_router(router)
     app.include_router(dashboard_router)
     app.include_router(dashboard_api)
+
+    static_dir = Path(__file__).resolve().parent.parent / "static"
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
     return app
 
 

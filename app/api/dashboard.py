@@ -48,7 +48,7 @@ DASHBOARD_HTML = """\
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ASSASSIN - Financial Intelligence Dashboard</title>
-    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="/static/htmx.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; }

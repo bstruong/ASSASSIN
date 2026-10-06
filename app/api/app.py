@@ -16,6 +16,8 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from app.api.dashboard import dashboard_api
+from app.api.dashboard import router as dashboard_router
 from app.api.routes import router
 from app.core.telemetry import configure_telemetry
 from app.db.connection import init_db
@@ -65,6 +67,8 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(router)
+    app.include_router(dashboard_router)
+    app.include_router(dashboard_api)
     return app
 
 

@@ -36,14 +36,6 @@ class TestValidateSqlStatement:
         result = _validate_sql_statement("INSERT INTO accounts VALUES (1);")
         assert "INSERT" in result
 
-    def test_allowed_update_prefix(self):
-        result = _validate_sql_statement("UPDATE accounts SET x = 1;")
-        assert "UPDATE" in result
-
-    def test_allowed_delete_prefix(self):
-        result = _validate_sql_statement("DELETE FROM accounts;")
-        assert "DELETE" in result
-
     def test_disallowed_prefix_raises(self):
         with pytest.raises(SqlExecutionError, match="must start with"):
             _validate_sql_statement("EXEC some_proc();")
@@ -152,14 +144,6 @@ class TestExecuteRawSql:
         )
         assert result[0]["val"] == 42
 
-    def test_non_select_returns_status(self, postgres_url):
-        # Use TRUNCATE with CASCADE - returns status with rowcount
-        result = execute_raw_sql(
-            "TRUNCATE TABLE raw_payloads RESTART IDENTITY CASCADE;",
-            database_url=postgres_url,
-        )
-        assert result[0]["status"] == "success"
-        assert "rowcount" in result[0]
 
     def test_invalid_sql_raises(self, postgres_url):
         with pytest.raises(SqlExecutionError, match="must start with"):

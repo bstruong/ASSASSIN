@@ -5,6 +5,7 @@ description = "ASSASSIN - local financial document intelligence pipeline. Zero P
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
+    "jinja2>=3.1.0",
     "pydantic>=2.0",
     "pdfplumber>=0.11.0",
     "uvicorn>=0.30.0",

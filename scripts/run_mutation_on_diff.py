@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import configparser
 import subprocess
 import sys
 from pathlib import Path
@@ -34,21 +33,21 @@ def main():
         stats_file.write_text('{"killed": 1, "survived": 0, "total": 1}')
         sys.exit(0)
 
-    paths_arg = ",".join(app_files)
-    print(f"Running mutmut only on changed files: {paths_arg}")
+    # Format app_files into a TOML array string
+    app_files_str = ", ".join(f'"{f}"' for f in app_files)
+    new_source_paths_line = f"source_paths = [{app_files_str}]"
 
-    # Mutmut 3.x no longer supports --paths-to-mutate CLI flag, so we inject it into setup.cfg
-    config = configparser.ConfigParser()
-    config.read("setup.cfg")
-    if "mutmut" not in config:
-        config.add_section("mutmut")
+    print(f"Running mutmut only on changed files: {', '.join(app_files)}")
 
-    # Save original to restore later
-    original_paths = config["mutmut"].get("paths_to_mutate", None)
-    config["mutmut"]["paths_to_mutate"] = paths_arg
+    pyproject_file = Path("pyproject.toml")
+    original_pyproject = pyproject_file.read_text()
 
-    with open("setup.cfg", "w") as f:
-        config.write(f)
+    # Replace the line `source_paths = ["app"]` with the new string
+    new_pyproject = original_pyproject.replace(
+        'source_paths = ["app"]', new_source_paths_line
+    )
+
+    pyproject_file.write_text(new_pyproject)
 
     e2e_test = Path("tests/test_e2e_dashboard.py")
     e2e_hidden = Path("tests/test_e2e_dashboard.py.bak")
@@ -63,13 +62,8 @@ def main():
     finally:
         if e2e_hidden.exists():
             e2e_hidden.rename(e2e_test)
-        # Restore original setup.cfg
-        if original_paths:
-            config["mutmut"]["paths_to_mutate"] = original_paths
-        else:
-            del config["mutmut"]["paths_to_mutate"]
-        with open("setup.cfg", "w") as f:
-            config.write(f)
+        # Restore original pyproject.toml
+        pyproject_file.write_text(original_pyproject)
 
     sys.exit(0)
 

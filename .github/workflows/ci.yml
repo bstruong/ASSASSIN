@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-and-lint:
-    name: Lint, Format & Test Coverage Gate
+  lint:
+    name: Lint & Format
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -37,12 +37,98 @@ jobs:
       - name: Check formatting (Ruff)
         run: uv run ruff format --check .
 
+  test:
+    name: Test Coverage Gate
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: assassin
+          POSTGRES_DB: assassin_test
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --tmpfs /var/lib/postgresql/data
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Initialize Test Database Schema
+        env:
+          PGPASSWORD: assassin
+        run: psql -h localhost -p 54329 -U postgres -d assassin_test -f app/db/schema.sql
+
       - name: Run test suite with strict coverage gate (>90%)
         run: uv run pytest --cov=app --cov-fail-under=90 -v
+
+  mutation:
+    name: Mutation Testing
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: assassin
+          POSTGRES_DB: assassin_test
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --tmpfs /var/lib/postgresql/data
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Initialize Test Database Schema
+        env:
+          PGPASSWORD: assassin
+        run: psql -h localhost -p 54329 -U postgres -d assassin_test -f app/db/schema.sql
+
+      - name: Cache mutmut
+        uses: actions/cache@v4
+        with:
+          path: .mutmut-cache
+          key: mutmut-${{ github.sha }}
+          restore-keys: mutmut-
 
       - name: Run mutation testing & quality score gate
         run: |
           uv run mutmut run
           uv run mutmut export-cicd-stats
           uv run python scripts/check_mutation_score.py --min-score 55.0
-

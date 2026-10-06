@@ -210,7 +210,11 @@ def main() -> None:
         # ------------------------------------------------------------------
         print("\n[10] Financial Precision (Integer Cents)")
         dollar_floats = re.findall(r"\$\d+\.\d{2,}", body)
-        check("No floating-point dollar amounts", len(dollar_floats) == 0, str(dollar_floats))
+        check(
+            "No floating-point dollar amounts",
+            len(dollar_floats) == 0,
+            str(dollar_floats),
+        )
 
         # ------------------------------------------------------------------
         # Summary

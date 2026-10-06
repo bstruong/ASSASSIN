@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
+import configparser
 import subprocess
 import sys
-import configparser
 from pathlib import Path
 
 
@@ -26,7 +26,9 @@ def get_changed_app_files():
 def main():
     app_files = get_changed_app_files()
     if not app_files:
-        print("No app/ Python files changed. Skipping mutation testing to save CI time.")
+        print(
+            "No app/ Python files changed. Skipping mutation testing to save CI time."
+        )
         stats_file = Path("mutants/mutmut-cicd-stats.json")
         stats_file.parent.mkdir(exist_ok=True)
         stats_file.write_text('{"killed": 1, "survived": 0, "total": 1}')
@@ -40,11 +42,11 @@ def main():
     config.read("setup.cfg")
     if "mutmut" not in config:
         config.add_section("mutmut")
-    
+
     # Save original to restore later
     original_paths = config["mutmut"].get("paths_to_mutate", None)
     config["mutmut"]["paths_to_mutate"] = paths_arg
-    
+
     with open("setup.cfg", "w") as f:
         config.write(f)
 
@@ -60,7 +62,7 @@ def main():
             del config["mutmut"]["paths_to_mutate"]
         with open("setup.cfg", "w") as f:
             config.write(f)
-            
+
     sys.exit(0)
 
 

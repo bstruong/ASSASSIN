@@ -127,20 +127,6 @@ To combine developer velocity with strict cloud validation, ASSASSIN utilizes a 
   - Executes local pre-flight checks (`uv sync`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run pytest --cov=app --cov-fail-under=90 -v`, `uv run python scripts/agent_review.py`).
   - Commits changes and opens the Pull Request on GitHub.
 
-### 2. Tier 2: Cloud Verification Agent (Google Jules)
-- **Role:** Automated Cloud Verification Agent reviewing and remediating PRs on GitHub.
-- **Configuration:** Configured via `.github/jules.yml`.
-- **Mandatory Directives:**
-  - Jules MUST read `AGENTS.md` on every run to internalize repository conventions and strict invariants.
-  - Strictly enforces core invariants:
-    - **Financial Precision:** Integer cents only; zero floats permitted.
-    - **Strict Contract Enforcement:** Fail loudly on schema or parsing errors; zero silent exception swallowing (`except ...: pass`).
-    - **Mutation Testing Gate:** 100% mutation kill rate on core validators (`app/pipeline/validator.py`), >=55% global mutation score.
-    - **Test Coverage:** Maintains >90% line and branch test coverage across all `app/` modules.
-  - **Automated Remediation:** If CI checks (`mutmut`, `pytest`, `ruff`, or `agent_review`) fail on a PR, Jules is instructed to inspect failure logs, diagnose root causes against `AGENTS.md` invariants, and automatically push remediation commits directly to the PR branch.
-  - **Interactive Triggers:** Jules can be summoned directly on PR discussions using triggers such as `@google-jules please verify invariants` or `@google-jules please fix failing tests and mutation gate`.
-
-
 ### Process Execution & Hang Prevention (CRITICAL)
 1. **No Dangling Background Processes:** Never run commands in the background using `&` unless absolutely necessary. If you must start a server or long-running process, you must kill it explicitly before ending your turn.
 2. **Explicit Thread Cleanup:** All test scripts and execution wrappers must have explicit cleanup logic (e.g., `sys.exit(0)` in Python or `os.Exit(0)` in Go) to forcefully terminate all lingering background threads.

@@ -31,7 +31,6 @@ flowchart TD
 
 This repository is built and maintained by autonomous AI agents governed by strict, automated CI/CD gates to ensure robust, error-free operation.
 
-- **Automated Cloud Review:** **Google Jules** acts as a self-healing cloud reviewer, constantly monitoring pull requests to enforce repository invariants, remediate failures, and guarantee flawless architectural compliance.
 - **100% Mutation Kill Rate:** The test suite utilizes `mutmut` to inject synthetic bugs into the abstract syntax tree (AST). All core financial validators mathematically require a **100% Mutation Kill Rate** (zero surviving mutants).
 - **Financial Precision (`BIGINT`):** All financial values are strictly processed and stored as integer-cents (`BIGINT` in the database, `int` in Python). Floating-point arithmetic is explicitly banned to prevent rounding anomalies.
 - **Test-Driven Development (TDD):** Every feature requires strict TDD and maintains >90% line and branch coverage, strictly enforced at the PR gate.

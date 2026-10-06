@@ -39,6 +39,12 @@ Any changes made to the codebase must strictly adhere to these invariants:
 
 ---
 
+
+6. **Strict Separation of Orchestration and Implementation (No Cheating):**
+   - Cloud Agents / Orchestrators are STRICTLY FORBIDDEN from writing application code, implementing features, or authoring tests themselves.
+   - Cloud Agents may ONLY generate architectural plans (`ARCH_PLAN.md`), review Pull Requests, configure CI/CD infrastructure, and trigger the Tier 1 Local Generation Agent (e.g., via `berserker/harness/pi/bin/pi-up.sh`).
+   - Under no circumstances may an Orchestrator bypass the local execution harness to save time. Writing code directly is considered a critical invariant violation and cheating.
+
 ## Test-Driven Development (TDD) Mandate
 
 All feature development and adapter implementations must strictly adhere to Test-Driven Development (TDD):

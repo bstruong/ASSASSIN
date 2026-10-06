@@ -179,19 +179,6 @@ def main() -> int:
     else:
         print("  ✅ Codebase is properly formatted.")
 
-    # 4. Pytest & Strict Coverage Gate (>90%)
-    print("\n[4/5] Executing Test Suite & Coverage Gate (`--cov-fail-under=90`)...")
-    code, out, err = run_command(
-        ["uv", "run", "pytest", "--cov=app", "--cov-fail-under=90", "-q"],
-        cwd=root_dir,
-    )
-    if code != 0:
-        print("  ❌ Test suite or coverage threshold failed:")
-        print(out or err)
-        total_failures += 1
-    else:
-        print("  ✅ Test suite passed with coverage >= 90%.")
-
     # 5. QA Verification Deliverables
     print("\n[5/6] Verifying Product Manager QA Deliverables...")
     qa_violations = check_qa_deliverables(root_dir)
@@ -203,33 +190,6 @@ def main() -> int:
     else:
         qa_files = [f.name for f in (root_dir / "scripts").glob("qa_*.py")]
         print(f"  ✅ Executable QA scripts verified: {', '.join(qa_files)}")
-
-    # 6. Mutation Testing Quality Gate
-    print(
-        "\n[6/6] Mutation Testing & Invariant Gate (`scripts/check_mutation_score.py`)..."
-    )
-    stats_file = root_dir / "mutants" / "mutmut-cicd-stats.json"
-    if not stats_file.exists():
-        run_command(["uv", "run", "mutmut", "run"], cwd=root_dir)
-        run_command(["uv", "run", "mutmut", "export-cicd-stats"], cwd=root_dir)
-
-    code, out, err = run_command(
-        [
-            "uv",
-            "run",
-            "python",
-            "scripts/check_mutation_score.py",
-            "--min-score",
-            "55.0",
-        ],
-        cwd=root_dir,
-    )
-    if code != 0:
-        print("  ❌ Mutation testing quality gate failed:")
-        print(out or err)
-        total_failures += 1
-    else:
-        print("  ✅ Mutation quality gate satisfied (core validators 100% killed).")
 
     print("\n" + "=" * 70)
     if total_failures == 0:

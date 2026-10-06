@@ -144,7 +144,6 @@ class TestExecuteRawSql:
         )
         assert result[0]["val"] == 42
 
-
     def test_invalid_sql_raises(self, postgres_url):
         with pytest.raises(SqlExecutionError, match="must start with"):
             execute_raw_sql("EXEC some_proc();", database_url=postgres_url)

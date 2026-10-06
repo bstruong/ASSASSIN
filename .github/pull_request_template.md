@@ -26,14 +26,3 @@ Please ensure all applicable boxes are checked before requesting review:
 
 <!-- Explicit instruction: Do not include automated agent attribution footers or tool co-author trailers in PR descriptions or commit messages. -->
 
-## Cloud Verification Agent (Google Jules)
-Use this section to trigger and track autonomous cloud verification by Google Jules:
-- **Auto-Trigger Commands:**
-  - Invariant Verification: `@google-jules please verify invariants`
-  - Automated Remediation: `@google-jules please fix failing tests and mutation gate`
-- **Cloud Verification Checklist:**
-  - [ ] `@google-jules` confirmed reading `AGENTS.md`
-  - [ ] Financial precision verified: zero floating-point arithmetic
-  - [ ] Strict contract enforcement verified: zero silent exceptions (`except ...: pass`)
-  - [ ] Mutation testing verified: 100% kill rate on core financial validators
-  - [ ] Coverage gate verified: >90% test coverage maintained

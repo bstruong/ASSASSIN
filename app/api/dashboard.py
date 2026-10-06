@@ -38,152 +38,13 @@ router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
-# HTML Templates (inline)
+# Template rendering helpers
 # ---------------------------------------------------------------------------
 
-DASHBOARD_HTML = """\
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASSASSIN - Financial Intelligence Dashboard</title>
-    <script src="/static/htmx.min.js"></script>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; }
-        .header { background: #161b22; padding: 16px 24px; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 12px; }
-        .header h1 { font-size: 1.25rem; color: #58a6ff; }
-        .header .badge { background: #238636; color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; }
-        .container { display: flex; height: calc(100vh - 57px); }
-        .pane { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #30363d; }
-        .pane:last-child { border-right: none; }
-        .pane-header { background: #161b22; padding: 12px 16px; border-bottom: 1px solid #30363d; font-weight: 600; font-size: 0.9rem; }
-        .pane-header .icon { margin-right: 8px; }
-        .pane-body { flex: 1; padding: 16px; overflow-y: auto; }
-        .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; margin-bottom: 6px; font-size: 0.85rem; color: #8b949e; }
-        textarea { width: 100%; min-height: 120px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; color: #c9d1d9; font-family: inherit; font-size: 0.9rem; resize: vertical; }
-        textarea:focus { outline: none; border-color: #58a6ff; }
-        button { background: #238636; color: #fff; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; font-weight: 500; }
-        button:hover { background: #2ea043; }
-        button:disabled { background: #30363d; cursor: not-allowed; }
-        .analysis-result { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 16px; margin-top: 12px; }
-        .analysis-result h3 { color: #58a6ff; margin-bottom: 8px; font-size: 1rem; }
-        .analysis-result p { color: #8b949e; font-size: 0.85rem; margin-bottom: 8px; }
-        .data-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.85rem; }
-        .data-table th { background: #161b22; color: #58a6ff; padding: 8px 12px; text-align: left; border-bottom: 1px solid #30363d; }
-        .data-table td { padding: 8px 12px; border-bottom: 1px solid #21262d; color: #c9d1d9; }
-        .data-table tr:hover td { background: #161b22; }
-        .amount { text-align: right; font-variant-numeric: tabular-nums; }
-        .status-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
-        .status-ok { background: #238636; color: #fff; }
-        .status-warn { background: #9e6a03; color: #fff; }
-        .status-err { background: #da3633; color: #fff; }
-        .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #484f58; }
-        .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
-        .empty-state p { font-size: 0.9rem; }
-        .loading { color: #58a6ff; font-style: italic; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>ASSASSIN</h1>
-        <span>Financial Intelligence Dashboard</span>
-        <span class="badge">Local Engine</span>
-    </div>
-    <div class="container">
-        <!-- Pane 1: The AI Analyst -->
-        <div class="pane" id="pane-analyst">
-            <div class="pane-header">
-                <span class="icon">&#9889;</span>The AI Analyst
-                <span style="float:right;font-weight:400;font-size:0.75rem;color:#8b949e">Frontier Generation</span>
-            </div>
-            <div class="pane-body">
-                <form hx-post="/api/v1/dashboard/analyze"
-                      hx-swap="innerHTML"
-                      hx-target="#pane-vault-body"
-                      hx-indicator="#pane-vault-body">
-                    <div class="form-group">
-                        <label for="question">Submit a financial question to the local engine</label>
-                        <textarea id="question" name="question" placeholder="e.g., Show me my total spending by category last month" required></textarea>
-                    </div>
-                    <button type="submit" id="submit-btn">Analyze</button>
-                </form>
-            </div>
-        </div>
-        <!-- Pane 2: The Local Vault -->
-        <div class="pane" id="pane-vault">
-            <div class="pane-header">
-                <span class="icon">&#128274;</span>The Local Vault
-                <span style="float:right;font-weight:400;font-size:0.75rem;color:#8b949e">Local Execution</span>
-            </div>
-            <div class="pane-body" id="pane-vault-body">
-                <div class="empty-state">
-                    <div class="icon">&#128202;</div>
-                    <p>Submit a question to begin analysis</p>
-                </div>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-"""
 
-ANALYSIS_RESULT_TEMPLATE = """\
-<div class="analysis-result">
-    <h3>Analysis Result</h3>
-    <p><strong>Question:</strong> {question}</p>
-    <p><strong>Engine:</strong> Local MoE (Qwen 3.6 Coder 35B / RTX 3060)</p>
-    <p><strong>Status:</strong> <span class="status-badge status-ok">Processed</span></p>
-    <p style="margin-top:12px;color:#8b949e;font-size:0.85rem;">
-        Analysis complete. Financial data rendered below with integer-cents precision.
-        No PII or raw financial amounts logged.
-    </p>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Metric</th>
-                <th>Category</th>
-                <th class="amount">Value (cents)</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>Total Balance</td>
-                <td>Portfolio</td>
-                <td class="amount">1250000</td>
-            </tr>
-            <tr>
-                <td>Monthly Spend</td>
-                <td>Consumption</td>
-                <td class="amount">423500</td>
-            </tr>
-            <tr>
-                <td>Investment Return</td>
-                <td>Yield</td>
-                <td class="amount">15750</td>
-            </tr>
-        </tbody>
-    </table>
-</div>
-"""
-
-ANALYSIS_ERROR_TEMPLATE = """\
-<div class="analysis-result" style="border-color: #da3633;">
-    <h3 style="color: #da3633;">Error</h3>
-    <p style="color: #f85149;">{error}</p>
-</div>
-"""
-
-STATUS_FRAGMENT = """\
-<div style="padding: 8px 0;">
-    <span class="status-badge status-ok">● Engine Online</span>
-    <span style="margin-left: 12px; font-size: 0.8rem; color: #8b949e;">
-        KV-cache: active | MoE: local | Privacy: enforced
-    </span>
-</div>
-"""
+def _render_dashboard() -> str:
+    """Render the main dashboard HTML from template."""
+    return env.get_template("dashboard.html").render()
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +55,7 @@ STATUS_FRAGMENT = """\
 @router.get("/dashboard", response_class=HTMLResponse)
 def serve_dashboard() -> HTMLResponse:
     """Serve the main HTMX dashboard page."""
-    return HTMLResponse(content=DASHBOARD_HTML)
+    return HTMLResponse(content=_render_dashboard())
 
 
 dashboard_api = APIRouter(prefix="/api/v1/dashboard")
@@ -238,9 +99,8 @@ async def analyze_question(
         extra={"question_length": len(stripped)},
     )
 
-    # Build analysis result HTML fragment
-    # NOTE: Financial values are integer cents — no floats.
-    result_html = ANALYSIS_RESULT_TEMPLATE.format(question=stripped)
+    # Render analysis result from template
+    result_html = env.get_template("analysis_result.html").render(question=stripped)
     return HTMLResponse(content=result_html)
 
 
@@ -260,7 +120,7 @@ async def get_status(request: Request) -> HTMLResponse:
             detail="This endpoint requires an HTMX request (HX-Request: true).",
         )
 
-    return HTMLResponse(content=STATUS_FRAGMENT)
+    return HTMLResponse(content=env.get_template("status.html").render())
 
 
 # ---------------------------------------------------------------------------

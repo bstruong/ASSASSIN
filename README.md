@@ -1,6 +1,6 @@
 # Dual-Tier AI Financial Engine
 
-**Dual-Tier AI Financial Engine** (formerly known internally as ASSASSIN) is a mathematically rigorous, fail-loud financial document extraction and reconciliation pipeline.
+**Dual-Tier AI Financial Engine** is a mathematically rigorous, fail-loud financial document extraction and reconciliation pipeline.
 
 Built with an agent-driven development workflow, it enforces strict financial invariants, closed canonical schemas, and zero-PII egress. It transforms raw, ragged PDF statement data into perfectly balanced, mathematically proven ledger records.
 

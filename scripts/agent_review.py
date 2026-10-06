@@ -179,7 +179,6 @@ def main() -> int:
     else:
         print("  ✅ Codebase is properly formatted.")
 
-
     # 5. QA Verification Deliverables
     print("\n[5/6] Verifying Product Manager QA Deliverables...")
     qa_violations = check_qa_deliverables(root_dir)
@@ -191,7 +190,6 @@ def main() -> int:
     else:
         qa_files = [f.name for f in (root_dir / "scripts").glob("qa_*.py")]
         print(f"  ✅ Executable QA scripts verified: {', '.join(qa_files)}")
-
 
     print("\n" + "=" * 70)
     if total_failures == 0:

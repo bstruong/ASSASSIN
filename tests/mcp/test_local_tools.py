@@ -263,7 +263,7 @@ class TestGetRawExtraction:
         db_conn.execute(
             "INSERT INTO raw_payloads (raw_payload_id, content_sha256, byte_length, original_basename, ingested_at) "
             "VALUES (%s, %s, %s, %s, NOW());",
-            (str(payload_id), "a" * 64, 100, "test.pdf"),
+            (str(payload_id), str(uuid.uuid4()).replace("-", "") * 2, 100, "test.pdf"),
         )
 
         # Insert a fake raw extraction run with pages and tokens

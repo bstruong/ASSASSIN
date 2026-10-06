@@ -33,7 +33,17 @@ Any changes made to the codebase must strictly adhere to these invariants:
    - Logs must provide sufficient context to reconstruct the state leading up to an error without manual debugging.
    - Never log raw PII (account numbers, SSNs, personal identities) or unmasked financial amounts (`amount_cents`, `amount`).
 
+5. **Frontend Asset Integrity:**
+   - Agents are strictly forbidden from hallucinating cryptographic hashes (SRI, SHA, MD5) or UUIDs for frontend assets.
+   - You must either serve assets locally from `app/static/`, compute hashes programmatically, or omit them.
+
 ---
+
+
+6. **Strict Separation of Orchestration and Implementation (No Cheating):**
+   - Cloud Agents / Orchestrators are STRICTLY FORBIDDEN from writing application code, implementing features, or authoring tests themselves.
+   - Cloud Agents may ONLY generate architectural plans (`ARCH_PLAN.md`), review Pull Requests, configure CI/CD infrastructure, and trigger the Tier 1 Local Generation Agent (e.g., via `berserker/harness/pi/bin/pi-up.sh`).
+   - Under no circumstances may an Orchestrator bypass the local execution harness to save time. Writing code directly is considered a critical invariant violation and cheating.
 
 ## Test-Driven Development (TDD) Mandate
 

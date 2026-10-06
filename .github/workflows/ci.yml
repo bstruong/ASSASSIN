@@ -61,6 +61,8 @@ jobs:
       env:
         PGPASSWORD: assassin
       run: psql -h localhost -p 54329 -U postgres -d assassin_test -f app/db/schema.sql
+    - name: Install Playwright browsers
+      run: uv run playwright install --with-deps
     - name: Run test suite with strict coverage gate (>90%)
       run: uv run pytest --cov=app --cov-fail-under=90 -v
   mutation:
@@ -102,6 +104,8 @@ jobs:
         path: .mutmut-cache
         key: mutmut-${{ github.sha }}
         restore-keys: mutmut-
+    - name: Install Playwright browsers
+      run: uv run playwright install --with-deps
     - name: Run mutation testing & quality score gate
       run: 'uv run python scripts/run_mutation_on_diff.py
 

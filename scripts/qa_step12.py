@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """QA Verification Script for Step 12: HTMX Dashboard.
 
 This script verifies the dashboard feature without reading code or diffs.
@@ -50,7 +49,7 @@ def start_server() -> subprocess.Popen:
             conn.close()
             if resp.status == 200:
                 return proc
-        except Exception:  # noqa: BLE001
+        except OSError:
             continue
 
     proc.terminate()
@@ -125,8 +124,6 @@ def check(name: str, condition: bool, detail: str = "") -> None:
 
 
 def main() -> None:
-    global passed, failed
-
     print("=" * 60)
     print("Step 12: HTMX Dashboard QA Verification")
     print("=" * 60)

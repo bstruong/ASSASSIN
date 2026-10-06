@@ -33,16 +33,17 @@ def main():
         stats_file.write_text('{"killed": 1, "survived": 0, "total": 1}')
         sys.exit(0)
 
-    # Format app_files into a TOML array string
+    # Keep source_paths = ["app"] so the whole package is copied into mutants/
+    # (tests import unchanged modules), but only mutate the changed files.
     app_files_str = ", ".join(f'"{f}"' for f in app_files)
-    new_source_paths_line = f"source_paths = [{app_files_str}]"
+    new_source_paths_line = f'source_paths = ["app"]\nonly_mutate = [{app_files_str}]'
 
     print(f"Running mutmut only on changed files: {', '.join(app_files)}")
 
     pyproject_file = Path("pyproject.toml")
     original_pyproject = pyproject_file.read_text()
 
-    # Replace the line `source_paths = ["app"]` with the new string
+    # Add the only_mutate restriction next to source_paths
     new_pyproject = original_pyproject.replace(
         'source_paths = ["app"]', new_source_paths_line
     )
@@ -56,8 +57,6 @@ def main():
         e2e_test.rename(e2e_hidden)
 
     try:
-        print("Pre-flight: Running clean tests...")
-        subprocess.run(["uv", "run", "pytest", "tests/"], check=False)
         cmd = ["uv", "run", "mutmut", "run"]
         subprocess.run(cmd, check=False)
         subprocess.run(["uv", "run", "mutmut", "export-cicd-stats"], check=False)

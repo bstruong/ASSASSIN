@@ -136,9 +136,9 @@ for name, sql in malicious_queries:
     result = resp.json()
     # DROP/DELETE/UPDATE are allowed by validator but fail at execution
     # Injection patterns fail at validation
-    is_rejected = (
-        result.get("status") == "failed"
-        and result.get("error_code") in ("SQL_VALIDATION_ERROR", "EXECUTION_ERROR")
+    is_rejected = result.get("status") == "failed" and result.get("error_code") in (
+        "SQL_VALIDATION_ERROR",
+        "EXECUTION_ERROR",
     )
     report.record(
         f"{name} rejected",

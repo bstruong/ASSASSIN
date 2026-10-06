@@ -104,6 +104,8 @@ jobs:
         path: .mutmut-cache
         key: mutmut-${{ github.sha }}
         restore-keys: mutmut-
+    - name: Install Playwright browsers
+      run: uv run playwright install --with-deps
     - name: Run mutation testing & quality score gate
       run: 'uv run python scripts/run_mutation_on_diff.py
 

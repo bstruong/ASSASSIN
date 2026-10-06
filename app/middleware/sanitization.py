@@ -101,9 +101,13 @@ def _redact_text(text: str) -> str:
 
 def _redact_value(value: Any, key: str | None = None) -> Any:
     """Recursively redact PII from a value (string, dict, list, or primitive)."""
-    if key and isinstance(key, str) and re.search(r"amount|balance|payment|charge|fee|total", key, re.IGNORECASE):
-        if isinstance(value, (int, float, str)):
-            return "[REDACTED_AMOUNT]"
+    if (
+        key
+        and isinstance(key, str)
+        and re.search(r"amount|balance|payment|charge|fee|total", key, re.IGNORECASE)
+        and isinstance(value, (int, float, str))
+    ):
+        return "[REDACTED_AMOUNT]"
     if isinstance(value, str):
         return _redact_text(value)
     if isinstance(value, dict):
@@ -111,7 +115,6 @@ def _redact_value(value: Any, key: str | None = None) -> Any:
     if isinstance(value, (list, tuple)):
         return [_redact_value(item) for item in value]
     return value
-
 
 
 class PiiSanitizationMiddleware(BaseHTTPMiddleware):

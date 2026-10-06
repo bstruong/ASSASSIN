@@ -26,6 +26,9 @@ instructions:
       - name: "Observability & Data Privacy"
         rule: "Structured JSON logging is required at boundaries. Never log raw PII or unmasked financial amounts."
 
+      - name: "PR Template Enforcement"
+        rule: "All Pull Requests MUST fully fill out the `.github/pull_request_template.md`. Empty descriptions, default boilerplate text without actual answers, or missing QA scripts are strictly prohibited. Jules MUST reject the PR and post a comment demanding a proper description if the template is not filled out."
+
   verification_commands:
     build: "uv sync"
     lint: "uv run ruff check ."
@@ -39,6 +42,8 @@ instructions:
     trigger_on_ci_failure: true
     behavior: |
       If CI (mutmut, pytest, ruff, or agent_review) fails on a PR:
+      0. Validate the PR description against `.github/pull_request_template.md`. If incomplete or lacking useful context, block the PR and post a comment instructing the author to update the PR description.
+
       1. Inspect the failure logs to isolate the failing tests, surviving mutants, or lint errors.
       2. Strictly adhere to `AGENTS.md` invariants when formulating changes.
       3. Automatically patch the code or tests to resolve the failures and eliminate surviving mutants.

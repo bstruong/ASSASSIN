@@ -50,6 +50,23 @@ def main():
     with open("setup.cfg", "w") as f:
         config.write(f)
 
+    # mutmut 3.x completely ignores setup.cfg if [tool.mutmut] exists in pyproject.toml
+    pyproject_file = Path("pyproject.toml")
+    pyproject_content = pyproject_file.read_text() if pyproject_file.exists() else None
+    if pyproject_content:
+        lines = pyproject_content.splitlines()
+        new_lines = []
+        in_mutmut = False
+        for line in lines:
+            if line.strip().startswith("[tool.mutmut]"):
+                in_mutmut = True
+            elif line.strip().startswith("[") and in_mutmut:
+                in_mutmut = False
+
+            if not in_mutmut:
+                new_lines.append(line)
+        pyproject_file.write_text("\n".join(new_lines) + "\n")
+
     e2e_test = Path("tests/test_e2e_dashboard.py")
     e2e_hidden = Path("tests/test_e2e_dashboard.py.bak")
 
@@ -63,6 +80,10 @@ def main():
     finally:
         if e2e_hidden.exists():
             e2e_hidden.rename(e2e_test)
+
+        if pyproject_content is not None:
+            pyproject_file.write_text(pyproject_content)
+
         # Restore original setup.cfg
         if original_paths:
             config["mutmut"]["paths_to_mutate"] = original_paths

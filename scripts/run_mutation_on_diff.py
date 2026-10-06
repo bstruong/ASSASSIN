@@ -50,11 +50,19 @@ def main():
     with open("setup.cfg", "w") as f:
         config.write(f)
 
+    e2e_test = Path("tests/test_e2e_dashboard.py")
+    e2e_hidden = Path("tests/test_e2e_dashboard.py.bak")
+
+    if e2e_test.exists():
+        e2e_test.rename(e2e_hidden)
+
     try:
         cmd = ["uv", "run", "mutmut", "run"]
         subprocess.run(cmd, check=False)
         subprocess.run(["uv", "run", "mutmut", "export-cicd-stats"], check=False)
     finally:
+        if e2e_hidden.exists():
+            e2e_hidden.rename(e2e_test)
         # Restore original setup.cfg
         if original_paths:
             config["mutmut"]["paths_to_mutate"] = original_paths

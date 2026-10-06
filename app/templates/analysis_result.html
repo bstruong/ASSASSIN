@@ -1,0 +1,36 @@
+<div class="analysis-result">
+    <h3>Analysis Result</h3>
+    <p><strong>Question:</strong> {{ question }}</p>
+    <p><strong>Engine:</strong> Local MoE (Qwen 3.6 Coder 35B / RTX 3060)</p>
+    <p><strong>Status:</strong> <span class="status-badge status-ok">Processed</span></p>
+    <p style="margin-top:12px;color:#8b949e;font-size:0.85rem;">
+        Analysis complete. Financial data rendered below with integer-cents precision.
+        No PII or raw financial amounts logged.
+    </p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Metric</th>
+                <th>Category</th>
+                <th class="amount">Value (cents)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Total Balance</td>
+                <td>Portfolio</td>
+                <td class="amount">1250000</td>
+            </tr>
+            <tr>
+                <td>Monthly Spend</td>
+                <td>Consumption</td>
+                <td class="amount">423500</td>
+            </tr>
+            <tr>
+                <td>Investment Return</td>
+                <td>Yield</td>
+                <td class="amount">15750</td>
+            </tr>
+        </tbody>
+    </table>
+</div>

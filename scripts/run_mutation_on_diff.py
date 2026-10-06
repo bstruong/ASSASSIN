@@ -56,6 +56,8 @@ def main():
         e2e_test.rename(e2e_hidden)
 
     try:
+        print("Pre-flight: Running clean tests...")
+        subprocess.run(["uv", "run", "pytest", "tests/"], check=False)
         cmd = ["uv", "run", "mutmut", "run"]
         subprocess.run(cmd, check=False)
         subprocess.run(["uv", "run", "mutmut", "export-cicd-stats"], check=False)

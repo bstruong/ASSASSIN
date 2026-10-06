@@ -42,10 +42,10 @@ def main():
     print(f"Running mutmut only on changed files: {paths_arg}")
 
     cmd = ["uv", "run", "mutmut", "run", "--paths-to-mutate", paths_arg]
-    res = subprocess.run(cmd)
+    subprocess.run(cmd, check=False)
 
     # We still export stats regardless of success/failure so check_mutation_score can evaluate
-    subprocess.run(["uv", "run", "mutmut", "export-cicd-stats"])
+    subprocess.run(["uv", "run", "mutmut", "export-cicd-stats"], check=False)
     sys.exit(0)
 
 

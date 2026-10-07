@@ -11,7 +11,7 @@
 - [ ] **Formatter:** `uv run ruff format --check .` passes cleanly.
 - [ ] **Coverage Gate:** `uv run pytest --cov=app --cov-fail-under=90 -v` passes.
 - **Reported Coverage:** `[Insert % here, e.g. 98%]`
-- [ ] **Mutation Testing Gate:** `mutmut` runs; tests actively kill synthetic mutations.
+- [ ] **Mutation Testing Gate:** allowlisted financial modules mutated (or explicit skip); classic score `killed/(killed+survived)` >= 55%; `no_tests == 0`; validator 100% when run.
 - **Reported Mutation Score:** `[Insert % here, e.g. 58.5%]`
 
 ## Architecture & Agent Review Invariants

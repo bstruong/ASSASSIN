@@ -72,7 +72,8 @@ All feature development and adapter implementations must strictly adhere to Test
    - Agents must run mutation testing via `uv run mutmut run && uv run mutmut export-cicd-stats`.
    - Injected mutations (such as operator inversions `<` vs `<=`, altered arithmetic signs, or deleted statements) must cause test failures.
    - Core financial validators (such as `app/pipeline/validator.py`) enforce a **100% mutation kill rate (zero surviving mutants)**.
-   - All PRs are gated by `uv run python scripts/check_mutation_score.py --min-score 55.0` in CI.
+   - All PRs are gated by `uv run python scripts/check_mutation_score.py --min-score 55.0 --max-no-tests 0` in CI.
+   - Score is classic `killed/(killed+survived)`. `no_tests` fails separately. Only financial allowlisted modules are mutated; API/dashboard/MCP are out of scope.
 
 ---
 
@@ -114,7 +115,7 @@ Before a pull request can be merged, the Reviewer Agent verifies:
 - [ ] **Strict Contract Enforcement:** No silent error suppression (`except Exception: pass`), no best-effort coercion, explicit taxonomy exceptions raised.
 - [ ] **Observability & Data Privacy:** Structured logging is configured at boundaries; no PII or financial amounts leaked.
 - [ ] **TDD & Coverage Gate:** `uv run pytest --cov=app --cov-fail-under=90` passes with >90% coverage.
-- [ ] **Mutation Testing Gate:** `mutmut` runs; zero surviving mutants in `app/pipeline/validator.py`, and global mutation score >= 55%.
+- [ ] **Mutation Testing Gate:** allowlisted modules mutated (or explicit `skipped: true`); classic score >= 55%; `no_tests == 0`; zero survivors in `app/pipeline/validator.py`.
 - [ ] **Code Hygiene:** `uv run ruff check .` and `uv run ruff format --check .` pass with zero warnings.
 - [ ] **QA Deliverables:** Executable QA script (`scripts/qa_*.py`) exists, runs successfully, and demonstrates both positive and negative cases.
 
@@ -141,3 +142,14 @@ To combine developer velocity with strict cloud validation, ASSASSIN utilizes a 
 1. **No Dangling Background Processes:** Never run commands in the background using `&` unless absolutely necessary. If you must start a server or long-running process, you must kill it explicitly before ending your turn.
 2. **Explicit Thread Cleanup:** All test scripts and execution wrappers must have explicit cleanup logic (e.g., `sys.exit(0)` in Python or `os.Exit(0)` in Go) to forcefully terminate all lingering background threads.
 3. **Pipe Detachment:** If you absolutely must spawn a persistent background process, you must redirect its output to detach it from the execution pipe: `command > /dev/null 2>&1 &`.
+
+## Troubleshooting & CI/CD Runbooks (For Future Agents)
+
+### Mutation Testing (`mutmut`) Anomalies
+* **`no_tests` (🫥) is a hard fail:** Untested / dead code on allowlisted modules fails `--max-no-tests 0`. Delete dead helpers or add assertion-heavy tests. Do **not** "fix" this by mutating presentation code or faking stats.
+* **Wrong score denominator:** Never use `killed/total`. `total` includes `no_tests` and skips. Use classic `killed/(killed+survived)` via `scripts/check_mutation_score.py`.
+* **Module Import Crashes (Exit Code 4):** `mutmut` isolates files in `mutants/`. Always keep `source_paths = ["app"]` and inject `only_mutate` via `scripts/run_mutation_on_diff.py`. Never point `source_paths` at a single file.
+* **Out-of-scope diffs:** Changes only under `app/api/`, `app/mcp/`, `app/routers/`, `app/middleware/`, `app/core/` should skip mutation (`skipped: true`). Do not expand the allowlist to HTMX/dashboard just to satisfy the gate—cover those with unit/E2E tests.
+* **Slow Mutations / E2E:** E2E tests are ignored in `[tool.mutmut]` and renamed `.bak` during diff runs. Playwright belongs on the **coverage** job only, not the mutation job.
+* **Single config:** Do not reintroduce `setup.cfg` for mutmut; `[tool.mutmut]` in `pyproject.toml` is authoritative.
+

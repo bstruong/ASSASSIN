@@ -98,17 +98,22 @@ jobs:
       env:
         PGPASSWORD: assassin
       run: psql -h localhost -p 54329 -U postgres -d assassin_test -f app/db/schema.sql
+    - name: Resolve mutmut cache fingerprint
+      id: mutmut_meta
+      run: |
+        MUTMUT_VER=$(uv run python -c 'import importlib.metadata as m; print(m.version("mutmut"))')
+        CONFIG_HASH=$(sha256sum pyproject.toml scripts/run_mutation_on_diff.py scripts/check_mutation_score.py | sha256sum | cut -d' ' -f1)
+        echo "mutmut_ver=${MUTMUT_VER}" >> "$GITHUB_OUTPUT"
+        echo "config_hash=${CONFIG_HASH}" >> "$GITHUB_OUTPUT"
     - name: Cache mutmut
       uses: actions/cache@v4
       with:
         path: .mutmut-cache
-        key: mutmut-${{ github.sha }}
-        restore-keys: mutmut-
-    - name: Install Playwright browsers
-      run: uv run playwright install --with-deps
+        key: mutmut-${{ steps.mutmut_meta.outputs.mutmut_ver }}-${{ steps.mutmut_meta.outputs.config_hash }}-${{ github.sha }}
+        # Exact key only — do not restore unrelated prior SHA caches.
     - name: Run mutation testing & quality score gate
-      run: 'uv run python scripts/run_mutation_on_diff.py
-
-        uv run python scripts/check_mutation_score.py --min-score 55.0
-
-        '
+      # Playwright is intentionally NOT installed here: E2E tests are ignored via
+      # [tool.mutmut] pytest_add_cli_args and hidden by run_mutation_on_diff.py.
+      run: |
+        uv run python scripts/run_mutation_on_diff.py
+        uv run python scripts/check_mutation_score.py --min-score 55.0 --max-no-tests 0

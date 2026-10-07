@@ -5,6 +5,10 @@ Guarantees:
 - Strict contract enforcement: fails loudly on invalid payloads.
 - Financial precision: no floating-point monetary values.
 - HTMX-first: returns HTML fragments for hx-swap updates.
+
+Mutation scope: this module is intentionally **out of mutmut scope**
+(``do_not_mutate`` / diff allowlist). Cover behavior with unit tests and
+Playwright E2E; do not gate PRs on dashboard mutation kill rates.
 """
 
 from __future__ import annotations

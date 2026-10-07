@@ -128,27 +128,5 @@ async def get_status(request: Request) -> HTMLResponse:
 # ---------------------------------------------------------------------------
 
 
-def _has_pii(text: str) -> bool:
-    """Check if text contains known PII patterns.
-
-    Returns True if PII is detected.
-    """
-    pii_patterns = [
-        r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
-        r"social.?security",
-        r"full.?name",
-        r"account.?number",
-    ]
-    for pattern in pii_patterns:
-        if re.search(pattern, text, re.IGNORECASE):
-            return True
-    return False
 
 
-def _has_float_money(text: str) -> bool:
-    """Check if text contains floating-point monetary values like $123.45.
-
-    Returns True if floating-point dollar amounts are found.
-    """
-    # Match $ followed by digits, a decimal point, and 2+ decimal digits
-    return bool(re.search(r"\$\d+\.\d{2,}", text))

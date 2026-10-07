@@ -38,10 +38,12 @@ from app.models.canonical import (
 from app.models.enums import (
     AccountType,
     TransactionCategory,
+    validate_category_for_domain,
     validate_category_sign,
 )
 from app.models.exceptions import (
     AmbiguousAccountsError,
+    InvariantError,
     MissingSectionError,
     SchemaDriftError,
     TokenError,
@@ -325,61 +327,53 @@ class SchwabAdapter(InvestmentStatementAdapter):
             has_explicit_sign = raw_amt.startswith(("+", "-")) or (
                 raw_amt.startswith("(") and raw_amt.endswith(")")
             )
+            if not has_explicit_sign:
+                raise TokenError(
+                    "Ambiguous amount sign without polarity indicator "
+                    f"(got {raw_amt!r})."
+                )
+
             desc_upper = raw_desc.upper()
 
             if "DIVIDEND" in desc_upper or "DIV " in desc_upper:
                 category = TransactionCategory.DIVIDEND
-                inferred_positive = True
             elif "INTEREST" in desc_upper:
                 category = TransactionCategory.INTEREST
-                inferred_positive = True
             elif (
                 "DEPOSIT" in desc_upper
                 or "WIRE IN" in desc_upper
                 or "TRANSFER IN" in desc_upper
             ):
                 category = TransactionCategory.TRANSFER_IN
-                inferred_positive = True
             elif (
                 "WITHDRAWAL" in desc_upper
                 or "WIRE OUT" in desc_upper
                 or "TRANSFER OUT" in desc_upper
             ):
                 category = TransactionCategory.TRANSFER_OUT
-                inferred_positive = False
             elif "FEE" in desc_upper:
                 category = TransactionCategory.FEE
-                inferred_positive = False
             elif (
                 "BOUGHT" in desc_upper
                 or "PURCHASE" in desc_upper
                 or "BUY" in desc_upper
+                or "SOLD" in desc_upper
+                or "SALE" in desc_upper
+                or "SELL" in desc_upper
             ):
                 category = TransactionCategory.TRADE_CASH
-                inferred_positive = False
-            elif "SOLD" in desc_upper or "SALE" in desc_upper or "SELL" in desc_upper:
-                category = TransactionCategory.TRADE_CASH
-                inferred_positive = True
             elif "CREDIT" in desc_upper:
                 category = TransactionCategory.OTHER_CREDIT
-                inferred_positive = True
             else:
                 category = (
                     TransactionCategory.OTHER_CREDIT
                     if raw_amt.startswith("+")
                     else TransactionCategory.OTHER_DEBIT
                 )
-                inferred_positive = raw_amt.startswith("+")
-
-            if not has_explicit_sign and "AMBIGUOUS" in desc_upper:
-                raise TokenError("Ambiguous amount sign without polarity indicator.")
 
             amount_cents = parse_currency_to_cents(raw_amt)
-            if not has_explicit_sign:
-                amount_cents = (
-                    abs(amount_cents) if inferred_positive else -abs(amount_cents)
-                )
 
+            validate_category_for_domain(self.account_domain, category)
             validate_category_sign(self.account_domain, category, amount_cents)
 
             txns.append(
@@ -618,7 +612,11 @@ class SchwabAdapter(InvestmentStatementAdapter):
                         )
 
                     if not (period_start <= txn_date <= period_end):
-                        continue
+                        raise InvariantError(
+                            f"Transaction date {txn_date.isoformat()} is outside "
+                            f"statement period "
+                            f"{period_start.isoformat()}..{period_end.isoformat()}"
+                        )
 
                     is_debit = raw_amt.startswith(("-", "("))
                     txn_type = (

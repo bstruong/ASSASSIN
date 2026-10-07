@@ -15,5 +15,5 @@
     "interest_charged": "$5.00",
     "new_balance": "$280.00"
   },
-  "raw_text": "STANDARD CARD\nCredit Card Statement\nCard Number: *9876\nStatement Period: 2025-01-01 to 2025-01-31\nPayment Due Date: 2025-02-25\nMinimum Payment Due: $35.00\n\nACCOUNT SUMMARY\nPrevious Balance: $500.00\nPayments and Credits: $500.00\nPurchases: $250.00\nCash Advances: $0.00\nBalance Transfers: $0.00\nFees Charged: $25.00\nInterest Charged: $5.00\nNew Balance: $280.00\n\nTRANSACTIONS\nDate    Description    Amount\n2025-01-05    Payment Received - Thank You    $500.00\n2025-01-10    Grocery Store Purchase    $250.00\n2025-01-15    Late Fee    $25.00\n2025-01-31    Interest Charge    $5.00\nEND OF STATEMENT"
+  "raw_text": "STANDARD CARD\nCredit Card Statement\nCard Number: *9876\nStatement Period: 2025-01-01 to 2025-01-31\nPayment Due Date: 2025-02-25\nMinimum Payment Due: $35.00\n\nACCOUNT SUMMARY\nPrevious Balance: $500.00\nPayments and Credits: $500.00\nPurchases: $250.00\nCash Advances: $0.00\nBalance Transfers: $0.00\nFees Charged: $25.00\nInterest Charged: $5.00\nNew Balance: $280.00\n\nTRANSACTIONS\nDate    Description    Amount\n2025-01-05    Payment Received - Thank You    -$500.00\n2025-01-10    Grocery Store Purchase    +$250.00\n2025-01-15    Late Fee    +$25.00\n2025-01-31    Interest Charge    +$5.00\nEND OF STATEMENT"
 }

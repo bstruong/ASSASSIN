@@ -29,11 +29,12 @@ from app.adapters.depository import StandardDepositoryAdapter
 from app.adapters.registry import get_default_registry
 from app.db.connection import init_db
 from app.db.repository import persist_canonical_statement, persist_raw_extraction
-from app.models.enums import RunStatus
+from app.models.enums import AccountType, RunStatus
 from app.models.exceptions import (
     AmbiguousAccountsError,
     InvariantError,
     MissingSectionError,
+    TokenError,
 )
 from app.models.raw import ExtractionRun, RawExtraction, RawPage, RawPayload
 
@@ -219,6 +220,26 @@ def main() -> int:
             return 1
         except MissingSectionError as exc:
             print_pass(f"Correctly caught missing section: {exc}")
+
+        # -------------------------------------------------------------------------
+        # 5b. Malformed transaction row fails loud (no silent skip)
+        # -------------------------------------------------------------------------
+        print_step("Scenario 5b: Malformed Row Fail-Loud Contract")
+        try:
+            adapter._parse_account_transactions(
+                "CHECKING TRANSACTION DETAILS\n"
+                "Date    Description    Amount    Balance\n"
+                "Invalid Row Skipped\n"
+                "END\n",
+                start_marker="CHECKING TRANSACTION DETAILS",
+                end_marker="END",
+                statement_id=uuid4(),
+                account_type=AccountType.CHECKING,
+            )
+            print_fail("Expected TokenError was not raised for malformed row!")
+            return 1
+        except TokenError as exc:
+            print_pass(f"Correctly rejected malformed row with TokenError: {exc}")
 
         # -------------------------------------------------------------------------
         # 6. Database Persistence Verification

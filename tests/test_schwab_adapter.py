@@ -29,6 +29,7 @@ from app.models.canonical import (
     TransactionType,
 )
 from app.models.exceptions import (
+    InvariantError,
     MissingSectionError,
     SchemaDriftError,
     TokenError,
@@ -603,7 +604,7 @@ class TestSchwabAdapterWiring:
             == []
         )
 
-        # Table with category and subheaders, blank rows
+        # Table with category and subheaders, blank rows (in-period only)
         mock_page.extract_tables.return_value = [
             [
                 ["Date", "Description", "Amount", "Category"],
@@ -611,7 +612,6 @@ class TestSchwabAdapterWiring:
                 ["", "", ""],
                 ["", "SUBHEADER ONLY", ""],
                 ["08/05/2025", "DIVIDEND", "$100.00", "Dividends"],
-                ["09/05/2025", "NEXT MONTH", "$50.00", "Interest"],  # outside period
             ]
         ]
         txns = adapter._extract_transactions(
@@ -619,6 +619,19 @@ class TestSchwabAdapterWiring:
         )
         assert len(txns) == 1
         assert txns[0].category == "Dividends"
+
+        # Out-of-period dated rows fail loud (no silent skip)
+        mock_page.extract_tables.return_value = [
+            [
+                ["Date", "Description", "Amount", "Category"],
+                ["08/05/2025", "DIVIDEND", "$100.00", "Dividends"],
+                ["09/05/2025", "NEXT MONTH", "$50.00", "Interest"],
+            ]
+        ]
+        with pytest.raises(InvariantError, match="outside statement period"):
+            adapter._extract_transactions(
+                mock_pdf, datetime.date(2025, 8, 1), datetime.date(2025, 8, 31)
+            )
 
         # Malformed row structure (too few columns)
         mock_page.extract_tables.return_value = [

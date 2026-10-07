@@ -1,5 +1,5 @@
 {
   "institution": "Standard Bank",
   "account_type": "Checking",
-  "raw_text": "STANDARD BANK\nChecking Account Number: *1234\nStatement Period: 2025-01-01 to 2025-01-31\n\nACCOUNT SUMMARY\nStarting Balance: $1,000.00\nDeposits and Additions: $0.00\nWithdrawals and Subtractions: $0.00\nInterest Paid: $0.00\nFees Charged: $0.00\nEnding Balance: $1,000.00\n\nTRANSACTION DETAILS\nDate    Description    Amount    Balance\n2025-01-10    AMBIGUOUS TRANSACTION    10.00    $990.00\nEND OF STATEMENT"
+  "raw_text": "STANDARD BANK\nChecking Account Number: *1234\nStatement Period: 2025-01-01 to 2025-01-31\n\nACCOUNT SUMMARY\nStarting Balance: $1,000.00\nDeposits and Additions: $0.00\nWithdrawals and Subtractions: $0.00\nInterest Paid: $0.00\nFees Charged: $0.00\nEnding Balance: $1,000.00\n\nTRANSACTION DETAILS\nDate    Description    Amount    Balance\n2025-01-10    ATM Withdrawal    10.00    $990.00\nEND OF STATEMENT"
 }

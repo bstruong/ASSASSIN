@@ -21,6 +21,7 @@ from app.models.canonical import (
 from app.models.enums import (
     AccountType,
     TransactionCategory,
+    validate_category_for_domain,
     validate_category_sign,
 )
 from app.models.exceptions import (
@@ -251,24 +252,26 @@ class StandardDepositoryAdapter(DepositoryStatementAdapter):
 
             post_date = parse_row_date(raw_date)
 
-            # Check for ambiguous sign (single amount column with no +/-/parentheses indicator)
+            # Ambiguous sign: single amount column with no +/-/() indicator.
+            # Description-based sign inference is forbidden.
             has_explicit_sign = raw_amt.startswith(("+", "-")) or (
                 raw_amt.startswith("(") and raw_amt.endswith(")")
             )
-            # Infer category and sign
+            if not has_explicit_sign:
+                raise TokenError(
+                    "Ambiguous amount sign without polarity indicator "
+                    f"(got {raw_amt!r})."
+                )
+
             desc_upper = raw_desc.upper()
             if "DEPOSIT" in desc_upper or "PAYROLL" in desc_upper:
                 category = TransactionCategory.DEPOSIT
-                inferred_positive = True
             elif "INTEREST" in desc_upper:
                 category = TransactionCategory.INTEREST_PAID
-                inferred_positive = True
             elif "FEE REFUND" in desc_upper or "REVERSAL" in desc_upper:
                 category = TransactionCategory.FEE_REVERSAL
-                inferred_positive = True
             elif "FEE" in desc_upper:
                 category = TransactionCategory.FEE
-                inferred_positive = False
             elif (
                 "WITHDRAWAL" in desc_upper
                 or "ATM" in desc_upper
@@ -276,23 +279,13 @@ class StandardDepositoryAdapter(DepositoryStatementAdapter):
                 or "PURCHASE" in desc_upper
             ):
                 category = TransactionCategory.WITHDRAWAL
-                inferred_positive = False
             else:
                 category = TransactionCategory.OTHER_DEBIT
-                inferred_positive = False
-
-            if not has_explicit_sign and "AMBIGUOUS" in desc_upper:
-                raise TokenError("Ambiguous amount sign without polarity indicator.")
 
             amount_cents = parse_currency_to_cents(raw_amt)
-            if not has_explicit_sign:
-                # Apply inferred sign
-                amount_cents = (
-                    abs(amount_cents) if inferred_positive else -abs(amount_cents)
-                )
-
             balance_after = parse_currency_to_cents(raw_bal) if raw_bal else None
 
+            validate_category_for_domain(self.account_domain, category)
             validate_category_sign(self.account_domain, category, amount_cents)
 
             txns.append(

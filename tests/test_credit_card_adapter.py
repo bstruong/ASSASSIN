@@ -14,10 +14,12 @@ from app.models.enums import (
     AccountType,
     RunStatus,
     TransactionCategory,
+    validate_category_for_domain,
 )
 from app.models.exceptions import (
     InvariantError,
     MissingSectionError,
+    TokenError,
 )
 from app.models.raw import (
     ExtractionRun,
@@ -104,6 +106,21 @@ class TestCreditCardAdapter:
         with pytest.raises(MissingSectionError, match="Payment due date"):
             self.adapter.parse_canonical(extraction)
 
+    def test_card_missing_minimum_payment_fails(self) -> None:
+        extraction = load_card_fixture("card_happy")
+        tampered_text = extraction.pages[0].page_text.replace(
+            "Minimum Payment Due: $35.00\n",
+            "",
+        )
+        extraction.pages[0] = RawPage(
+            run_id=extraction.run.run_id,
+            page_number=1,
+            page_text=tampered_text,
+            tokens=[],
+        )
+        with pytest.raises(MissingSectionError, match="Minimum payment due"):
+            self.adapter.parse_canonical(extraction)
+
     def test_card_midcycle_interest(self) -> None:
         extraction = load_card_fixture("card_midcycle_interest")
         _account, statement, summary, txns = self.adapter.parse_canonical(extraction)
@@ -170,3 +187,53 @@ class TestCreditCardAdapter:
         )
         with pytest.raises(InvariantError, match="Credit card balance equation failed"):
             self.adapter.parse_canonical(extraction)
+
+    def test_glyph_category_disagreement_fails_loud(self) -> None:
+        extraction = load_card_fixture("card_happy")
+        tampered_text = extraction.pages[0].page_text.replace(
+            "Payment Received - Thank You    -$500.00",
+            "Payment Received - Thank You    +$500.00",
+        )
+        extraction.pages[0] = RawPage(
+            run_id=extraction.run.run_id,
+            page_number=1,
+            page_text=tampered_text,
+            tokens=[],
+        )
+        with pytest.raises(TokenError, match="disagrees with printed amount"):
+            self.adapter.parse_canonical(extraction)
+
+    def test_unsigned_card_amount_fails_loud(self) -> None:
+        extraction = load_card_fixture("card_happy")
+        tampered_text = extraction.pages[0].page_text.replace(
+            "Grocery Store Purchase    +$250.00",
+            "Grocery Store Purchase    $250.00",
+        )
+        extraction.pages[0] = RawPage(
+            run_id=extraction.run.run_id,
+            page_number=1,
+            page_text=tampered_text,
+            tokens=[],
+        )
+        with pytest.raises(TokenError, match="Ambiguous amount sign"):
+            self.adapter.parse_canonical(extraction)
+
+    def test_deposit_category_invalid_for_revolving_domain(self) -> None:
+        with pytest.raises(ValueError, match="not valid for domain"):
+            validate_category_for_domain(
+                AccountDomain.REVOLVING_CREDIT, TransactionCategory.DEPOSIT
+            )
+
+    def test_domain_category_validation_invoked_on_parse(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(domain: AccountDomain, category: TransactionCategory) -> None:
+            raise ValueError(
+                f"Category {category!r} is not valid for domain {domain!r}."
+            )
+
+        monkeypatch.setattr(
+            "app.adapters.credit_card.validate_category_for_domain", boom
+        )
+        with pytest.raises(ValueError, match="not valid for domain"):
+            self.adapter.parse_canonical(load_card_fixture("card_happy"))

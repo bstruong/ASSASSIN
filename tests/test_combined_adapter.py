@@ -25,6 +25,7 @@ from app.models.exceptions import (
     AmbiguousAccountsError,
     InvariantError,
     MissingSectionError,
+    TokenError,
 )
 from app.models.raw import ExtractionRun, RawExtraction, RawPage, RawPayload
 
@@ -382,13 +383,11 @@ class TestCombinedAdapterParsing:
             "CHECKING ACCOUNT SUMMARY\n"
             "CHECKING TRANSACTION DETAILS\n"
             "Date    Description    Amount    Balance\n"
-            "2025-01-05    ATM Withdrawal    -$50.00    $950.00\n"
-            "Invalid Row Skipped\n"
-            "9999-99-99    Bad Date    -$10.00\n\n"
+            "2025-01-05    ATM Withdrawal    -$50.00    $950.00\n\n"
             "SAVINGS ACCOUNT SUMMARY\n"
             "SAVINGS TRANSACTION DETAILS\n"
             "Date    Description    Amount    Balance\n"
-            "2025-01-10    Transfer Deposit    $50.00    $5,050.00\n\n"
+            "2025-01-10    Transfer Deposit    +$50.00    $5,050.00\n\n"
             "END OF STATEMENT"
         )
         extraction = load_fixture("combined_checking_savings_happy")
@@ -403,6 +402,34 @@ class TestCombinedAdapterParsing:
         _chk_acc, chk_stmt, _chk_sum, chk_txns = bundles[0]
         assert chk_stmt.closing_balance_cents == 95000
         assert chk_txns[0].transaction_category == TransactionCategory.WITHDRAWAL
+
+    def test_malformed_transaction_row_fails_loud(self) -> None:
+        """Short / unparseable rows must raise TokenError (no silent skip)."""
+        adapter = StandardCombinedDepositoryAdapter()
+        with pytest.raises(TokenError, match="Malformed transaction row"):
+            adapter._parse_account_transactions(
+                "CHECKING TRANSACTION DETAILS\n"
+                "Date    Description    Amount    Balance\n"
+                "Invalid Row\n",
+                start_marker="CHECKING TRANSACTION DETAILS",
+                end_marker="END",
+                statement_id=uuid4(),
+                account_type=AccountType.CHECKING,
+            )
+
+    def test_unparseable_transaction_date_fails_loud(self) -> None:
+        adapter = StandardCombinedDepositoryAdapter()
+        with pytest.raises(TokenError, match="Unparseable transaction date"):
+            adapter._parse_account_transactions(
+                "CHECKING TRANSACTION DETAILS\n"
+                "Date    Description    Amount    Balance\n"
+                "9999-99-99    Bad Date    -$10.00\n"
+                "END\n",
+                start_marker="CHECKING TRANSACTION DETAILS",
+                end_marker="END",
+                statement_id=uuid4(),
+                account_type=AccountType.CHECKING,
+            )
 
     def test_missing_transaction_start_marker_fails(self) -> None:
         adapter = StandardCombinedDepositoryAdapter()
@@ -474,7 +501,7 @@ class TestCombinedAdapterParsing:
             "CHECKING TRANSACTION DETAILS\n"
             "Date    Description    Amount    Balance\n"
             "2025-01-05    Monthly Fee    -$15.00    $985.00\n"
-            "2025-01-06    Fee Reversal Courtesy    $15.00    $1,000.00\n\n"
+            "2025-01-06    Fee Reversal Courtesy    +$15.00    $1,000.00\n\n"
             "SAVINGS ACCOUNT SUMMARY\n"
             "SAVINGS TRANSACTION DETAILS\n"
             "Date    Description    Amount    Balance\n\n"

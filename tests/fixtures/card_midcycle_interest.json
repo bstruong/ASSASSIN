@@ -15,5 +15,5 @@
     "interest_charged": "$15.00",
     "new_balance": "$1,115.00"
   },
-  "raw_text": "STANDARD CARD\nCredit Card Statement\nCard Number: *9876\nStatement Period: 2025-01-01 to 2025-01-31\nPayment Due Date: 2025-02-25\nMinimum Payment Due: $50.00\n\nACCOUNT SUMMARY\nPrevious Balance: $1,000.00\nPayments and Credits: $0.00\nPurchases: $100.00\nCash Advances: $0.00\nBalance Transfers: $0.00\nFees Charged: $0.00\nInterest Charged: $15.00\nNew Balance: $1,115.00\n\nTRANSACTIONS\nDate    Description    Amount\n2025-01-12    Mid-Cycle Interest Charge    $15.00\n2025-01-20    Coffee Shop Purchase    $100.00\nEND OF STATEMENT"
+  "raw_text": "STANDARD CARD\nCredit Card Statement\nCard Number: *9876\nStatement Period: 2025-01-01 to 2025-01-31\nPayment Due Date: 2025-02-25\nMinimum Payment Due: $50.00\n\nACCOUNT SUMMARY\nPrevious Balance: $1,000.00\nPayments and Credits: $0.00\nPurchases: $100.00\nCash Advances: $0.00\nBalance Transfers: $0.00\nFees Charged: $0.00\nInterest Charged: $15.00\nNew Balance: $1,115.00\n\nTRANSACTIONS\nDate    Description    Amount\n2025-01-12    Mid-Cycle Interest Charge    +$15.00\n2025-01-20    Coffee Shop Purchase    +$100.00\nEND OF STATEMENT"
 }

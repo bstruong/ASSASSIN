@@ -31,10 +31,13 @@ from app.models.enums import (
     AccountType,
     CurrencyCode,
     TransactionCategory,
+    validate_category_for_domain,
+    validate_category_sign,
 )
 from app.models.exceptions import (
     InvariantError,
     MissingSectionError,
+    TokenError,
 )
 from app.models.raw import RawExtraction
 from app.models.schema import TableSchema
@@ -355,11 +358,16 @@ class StandardCombinedDepositoryAdapter(CombinedStatementAdapter):
         transactions: list[CanonicalTransaction] = []
 
         for line in lines:
-            if line.upper().startswith("DATE") or "DESCRIPTION" in line.upper():
+            # Explicit skip: table header rows only (DATE... DESCRIPTION...).
+            if line.upper().startswith("DATE") or (
+                "DESCRIPTION" in line.upper() and "AMOUNT" in line.upper()
+            ):
                 continue
             parts = [p.strip() for p in re.split(r"\s{2,}|\t+|\|", line) if p.strip()]
             if len(parts) < 3:
-                continue
+                raise TokenError(
+                    f"Malformed transaction row (need date, description, amount): {line!r}"
+                )
 
             date_str = parts[0].strip()
             desc = parts[1].strip()
@@ -368,8 +376,19 @@ class StandardCombinedDepositoryAdapter(CombinedStatementAdapter):
 
             try:
                 txn_date = datetime.date.fromisoformat(date_str)
-            except ValueError:
-                continue
+            except ValueError as exc:
+                raise TokenError(
+                    f"Unparseable transaction date {date_str!r} in row: {line!r}"
+                ) from exc
+
+            has_explicit_sign = amt_str.startswith(("+", "-")) or (
+                amt_str.startswith("(") and amt_str.endswith(")")
+            )
+            if not has_explicit_sign:
+                raise TokenError(
+                    "Ambiguous amount sign without polarity indicator "
+                    f"(got {amt_str!r})."
+                )
 
             amt_cents = parse_currency_to_cents(amt_str, allow_zero=False)
             bal_after_cents = (
@@ -388,6 +407,9 @@ class StandardCombinedDepositoryAdapter(CombinedStatementAdapter):
                 category = TransactionCategory.DEPOSIT
             else:
                 category = TransactionCategory.WITHDRAWAL
+
+            validate_category_for_domain(AccountDomain.DEPOSITORY, category)
+            validate_category_sign(AccountDomain.DEPOSITORY, category, amt_cents)
 
             transactions.append(
                 CanonicalTransaction(

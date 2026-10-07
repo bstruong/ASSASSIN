@@ -49,6 +49,9 @@ pytest_add_cli_args = [
     "-x",
     "-q",
     "--ignore=tests/test_e2e_dashboard.py",
+    # Meta-tests of mutation gate scripts load scripts/ from repo root; mutmut
+    # only copies app/ into mutants/, so these must not run under mutmut.
+    "--ignore=tests/test_mutation_gates.py",
     # Out-of-scope layers: mutating them is disabled; their tests can fail
     # preflight when optional services (GPU MCP, etc.) are absent.
     "--ignore=tests/routers",

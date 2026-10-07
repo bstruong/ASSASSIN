@@ -85,21 +85,30 @@ def test_ci_cd_workflow(root_dir: Path) -> None:
         "--cov-fail-under=90" in content,
     )
     assert_condition(
-        "CI executes mutation score gate `scripts/check_mutation_score.py`",
-        "scripts/check_mutation_score.py" in content,
+        "PR CI does not block on mutation (moved to nightly)",
+        "check_mutation_score.py" not in content and "mutation:" not in content,
     )
-    mutation_job = content.split("mutation:", 1)[1] if "mutation:" in content else ""
+    nightly_yaml = root_dir / ".github" / "workflows" / "mutation-nightly.yml"
     assert_condition(
-        "Mutation job does not install Playwright (E2E excluded from mutmut)",
-        "playwright install" not in mutation_job,
+        ".github/workflows/mutation-nightly.yml exists",
+        nightly_yaml.is_file(),
+    )
+    nightly = nightly_yaml.read_text(encoding="utf-8")
+    assert_condition(
+        "Nightly mutation runs full allowlist + score gate",
+        "--full-allowlist" in nightly and "check_mutation_score.py" in nightly,
     )
     assert_condition(
-        "Mutation gate uses classic score + max-no-tests",
-        "--max-no-tests" in mutation_job,
+        "Nightly mutation job does not install Playwright",
+        "playwright install" not in nightly,
     )
     assert_condition(
-        "Mutation cache key includes mutmut version fingerprint",
-        "mutmut_ver" in mutation_job and "config_hash" in mutation_job,
+        "Nightly mutation gate uses classic score + max-no-tests",
+        "--max-no-tests" in nightly,
+    )
+    assert_condition(
+        "Nightly mutation cache key includes mutmut version fingerprint",
+        "mutmut_ver" in nightly and "config_hash" in nightly,
     )
 
 

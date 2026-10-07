@@ -33,7 +33,7 @@ from app.models.enums import (
     RunStatus,
     TransactionCategory,
 )
-from app.models.exceptions import PersistenceError
+from app.models.exceptions import InvariantError, PersistenceError
 from app.models.raw import (
     ExtractionRun,
     RawExtraction,
@@ -381,6 +381,59 @@ class TestPostgresCanonicalPersistence:
         assert summary_out.new_balance_cents == 28000
         assert summary_out.minimum_payment_due_cents == 3500
         assert summary_out.payment_due_date == datetime.date(2025, 3, 25)
+
+    def test_persist_credit_card_missing_min_payment_fails_loud(
+        self, db_conn: psycopg.Connection
+    ) -> None:
+        payload = RawPayload(
+            content_sha256="d1" * 32,
+            byte_length=1500,
+            original_basename="card_no_min.pdf",
+        )
+        run = ExtractionRun(
+            raw_payload_id=payload.raw_payload_id,
+            adapter_id="standard_credit_card",
+            adapter_version="1.0.0",
+            status=RunStatus.VALIDATED,
+        )
+        page = RawPage(run_id=run.run_id, page_number=1, page_text="Card statement")
+        persist_raw_extraction(
+            db_conn, RawExtraction(payload=payload, run=run, pages=[page])
+        )
+
+        account = Account(
+            institution="Card Bank",
+            account_mask="*8888",
+            account_domain=AccountDomain.REVOLVING_CREDIT,
+            account_type=AccountType.CREDIT_CARD,
+        )
+        statement = CanonicalStatement(
+            account_id=account.account_id,
+            run_id=run.run_id,
+            raw_payload_id=payload.raw_payload_id,
+            statement_start_date=datetime.date(2025, 2, 1),
+            statement_end_date=datetime.date(2025, 2, 28),
+            opening_balance_cents=50000,
+            closing_balance_cents=50000,
+            net_change_cents=0,
+        )
+        summary = CreditCardSummary(
+            statement_id=statement.statement_id,
+            previous_balance_cents=50000,
+            payments_credits_cents=0,
+            purchases_cents=0,
+            cash_advances_cents=0,
+            balance_transfers_cents=0,
+            fees_charged_cents=0,
+            interest_charged_cents=0,
+            new_balance_cents=50000,
+            minimum_payment_due_cents=None,
+            payment_due_date=datetime.date(2025, 3, 25),
+        )
+        with pytest.raises(
+            InvariantError, match="minimum_payment_due_cents is required"
+        ):
+            persist_canonical_statement(db_conn, account, statement, summary, [])
 
     def test_persist_brokerage_statement_happy_path(
         self, db_conn: psycopg.Connection

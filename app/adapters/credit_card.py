@@ -21,6 +21,7 @@ from app.models.canonical import (
 from app.models.enums import (
     AccountType,
     TransactionCategory,
+    validate_category_for_domain,
     validate_category_sign,
 )
 from app.models.exceptions import (
@@ -184,37 +185,41 @@ class StandardCreditCardAdapter(CreditCardStatementAdapter):
                 "Payment due date is required on card statements."
             )
 
-        # Minimum payment due
-        min_payment_cents: int | None = None
+        # Minimum payment due (required — DB column is NOT NULL; do not invent zero)
         min_match = re.search(
             r"Minimum Payment Due[:\s]+([-(]?\$?[\d,]+\.\d{2}\)?)",
             all_text,
             re.IGNORECASE,
         )
-        if min_match:
-            val_min = min_match.group(1).strip()
-            is_min_neg = (
-                val_min.startswith("-")
-                or (val_min.startswith("(") and val_min.endswith(")"))
-                or "$-" in val_min
+        if not min_match:
+            raise MissingSectionError(
+                "Minimum payment due is required on card statements."
             )
-            clean_digits = re.sub(r"[^\d.]", "", val_min)
-            clean_min = f"${clean_digits}"
-            parsed_min = parse_currency_to_cents(clean_min, allow_zero=True)
-            min_payment_cents = -abs(parsed_min) if is_min_neg else abs(parsed_min)
+        val_min = min_match.group(1).strip()
+        is_min_neg = (
+            val_min.startswith("-")
+            or (val_min.startswith("(") and val_min.endswith(")"))
+            or "$-" in val_min
+        )
+        clean_digits = re.sub(r"[^\d.]", "", val_min)
+        clean_min = f"${clean_digits}"
+        parsed_min = parse_currency_to_cents(clean_min, allow_zero=True)
+        min_payment_cents = -abs(parsed_min) if is_min_neg else abs(parsed_min)
 
+        # Bucket fields are unsigned magnitudes for the revolving equation.
+        # Opening/closing liability balances keep printed signs (no abs rewrite).
         summary = CreditCardSummary(
             statement_id=extraction.run.run_id,
             payment_due_date=due_date,
             minimum_payment_due_cents=min_payment_cents,
-            previous_balance_cents=abs(prev_balance_cents),
+            previous_balance_cents=prev_balance_cents,
             payments_credits_cents=abs(payments_credits_cents),
             purchases_cents=abs(purchases_cents),
             cash_advances_cents=abs(cash_advances_cents),
             balance_transfers_cents=abs(balance_transfers_cents),
             fees_charged_cents=abs(fees_charged_cents),
             interest_charged_cents=abs(interest_charged_cents),
-            new_balance_cents=abs(new_balance_cents),
+            new_balance_cents=new_balance_cents,
         )
 
         return prev_balance_cents, new_balance_cents, summary
@@ -268,40 +273,52 @@ class StandardCreditCardAdapter(CreditCardStatementAdapter):
             post_date = parse_row_date(raw_date)
             desc_upper = raw_desc.upper()
 
-            # Classify category using regex boundaries to avoid false positives (e.g. COFFEE containing FEE)
+            # Ambiguous sign: single amount column requires explicit +/-/().
+            has_explicit_sign = raw_amt.startswith(("+", "-")) or (
+                raw_amt.startswith("(") and raw_amt.endswith(")")
+            )
+            if not has_explicit_sign:
+                raise TokenError(
+                    "Ambiguous amount sign without polarity indicator "
+                    f"(got {raw_amt!r})."
+                )
+
+            # Classify category using regex boundaries to avoid false positives
+            # (e.g. COFFEE containing FEE). Sign comes from the printed glyph only.
             if re.search(r"\bPAYMENT\b", desc_upper):
                 category = TransactionCategory.PAYMENT
-                is_balance_increase = False
+                expects_balance_increase = False
             elif re.search(r"\b(REFUND|RETURN)\b", desc_upper):
                 category = TransactionCategory.CREDIT
-                is_balance_increase = False
+                expects_balance_increase = False
             elif re.search(r"\b(FEE REFUND|FEE REVERSAL|WAIVER)\b", desc_upper):
                 category = TransactionCategory.FEE_REVERSAL
-                is_balance_increase = False
+                expects_balance_increase = False
             elif re.search(r"\bCASH ADVANCE\b", desc_upper):
                 category = TransactionCategory.CASH_ADVANCE
-                is_balance_increase = True
+                expects_balance_increase = True
             elif re.search(r"\bBALANCE TRANSFER\b", desc_upper):
                 category = TransactionCategory.BALANCE_TRANSFER
-                is_balance_increase = True
+                expects_balance_increase = True
             elif re.search(r"\bINTEREST\b", desc_upper):
                 category = TransactionCategory.INTEREST_CHARGED
-                is_balance_increase = True
+                expects_balance_increase = True
             elif re.search(r"\b(FEE|LATE|ANNUAL)\b", desc_upper):
                 category = TransactionCategory.FEE
-                is_balance_increase = True
+                expects_balance_increase = True
             else:
                 category = TransactionCategory.PURCHASE
-                is_balance_increase = True
+                expects_balance_increase = True
 
-            parsed_cents = parse_currency_to_cents(raw_amt)
-            # Apply signed delta convention:
-            # card purchases, advances, transfers, fees, interest increase balance (+N)
-            # payments, credits, fee reversals decrease balance (-N)
-            amount_cents = (
-                abs(parsed_cents) if is_balance_increase else -abs(parsed_cents)
-            )
+            amount_cents = parse_currency_to_cents(raw_amt)
+            glyph_is_increase = amount_cents > 0
+            if glyph_is_increase != expects_balance_increase:
+                raise TokenError(
+                    f"Category {category.value!r} disagrees with printed amount "
+                    f"sign for {raw_amt!r}."
+                )
 
+            validate_category_for_domain(self.account_domain, category)
             validate_category_sign(self.account_domain, category, amount_cents)
 
             txns.append(

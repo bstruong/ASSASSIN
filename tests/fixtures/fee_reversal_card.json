@@ -15,5 +15,5 @@
     "interest_charged": "$0.00",
     "new_balance": "$100.00"
   },
-  "raw_text": "STANDARD CARD\nCredit Card Statement\nCard Number: *9876\nStatement Period: 2025-01-01 to 2025-01-31\nPayment Due Date: 2025-02-25\nMinimum Payment Due: $0.00\n\nACCOUNT SUMMARY\nPrevious Balance: $100.00\nPayments and Credits: $0.00\nPurchases: $0.00\nCash Advances: $0.00\nBalance Transfers: $0.00\nFees Charged: $0.00\nInterest Charged: $0.00\nNew Balance: $100.00\n\nTRANSACTIONS\nDate    Description    Amount\n2025-01-10    Late Fee    $25.00\n2025-01-12    Late Fee Reversal    $25.00\nEND OF STATEMENT"
+  "raw_text": "STANDARD CARD\nCredit Card Statement\nCard Number: *9876\nStatement Period: 2025-01-01 to 2025-01-31\nPayment Due Date: 2025-02-25\nMinimum Payment Due: $0.00\n\nACCOUNT SUMMARY\nPrevious Balance: $100.00\nPayments and Credits: $0.00\nPurchases: $0.00\nCash Advances: $0.00\nBalance Transfers: $0.00\nFees Charged: $0.00\nInterest Charged: $0.00\nNew Balance: $100.00\n\nTRANSACTIONS\nDate    Description    Amount\n2025-01-10    Late Fee    +$25.00\n2025-01-12    Late Fee Reversal    -$25.00\nEND OF STATEMENT"
 }

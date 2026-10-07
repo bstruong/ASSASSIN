@@ -3,8 +3,8 @@
 
 Target Audience: Product Manager & Quality Assurance
 Purpose:
-    Demonstrates that CI mutation strategy kills defects in financial modules
-    without gating PRs on presentation/API mutation scores.
+    Demonstrates that the mutation strategy kills defects in financial modules.
+    Mutation is required on main via nightly (not a PR merge blocker).
 
 Usage:
     uv run python scripts/qa_mutation_testing.py

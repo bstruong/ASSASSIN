@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Diff-scoped mutation runner for financial-critical modules only.
+"""Mutation runner for financial-critical modules.
+
+Modes
+-----
+* **Diff-scoped (default):** mutate allowlisted files changed vs ``origin/main``.
+  When none changed, write ``skipped: true`` and exit 0.
+* **Full allowlist (``--full-allowlist``):** mutate every allowlisted module.
+  Used by the nightly / main-required mutation workflow.
 
 Scope policy
 ------------
@@ -9,16 +16,11 @@ those areas are gated by coverage and targeted unit/E2E tests instead.
 
 Critical modules (e.g. ``app/pipeline/validator.py``) are always included
 whenever a mutation run executes, even if they are not in the git diff.
-
-Skip policy
------------
-When no allowlisted ``app/`` files changed, write an explicit skipped
-stats artifact (``skipped: true``) and exit 0. Never fabricate a fake
-100% kill rate.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -64,13 +66,34 @@ def get_changed_app_files() -> list[str]:
 
 
 def is_allowlisted(path: str) -> bool:
+    normalized = path.replace("\\", "/")
     for prefix in MUTATION_ALLOWLIST_PREFIXES:
         if prefix.endswith("/"):
-            if path.startswith(prefix) or path == prefix.rstrip("/"):
+            if normalized.startswith(prefix) or normalized == prefix.rstrip("/"):
                 return True
-        elif path == prefix:
+        elif normalized == prefix:
             return True
     return False
+
+
+def list_allowlisted_modules() -> list[str]:
+    """Return every existing allowlisted ``*.py`` path plus critical modules."""
+    targets: set[str] = set()
+    for prefix in MUTATION_ALLOWLIST_PREFIXES:
+        if prefix.endswith("/"):
+            root = Path(prefix)
+            if not root.is_dir():
+                continue
+            for path in root.rglob("*.py"):
+                rel = path.as_posix()
+                if is_allowlisted(rel):
+                    targets.add(rel)
+        elif Path(prefix).is_file():
+            targets.add(prefix)
+    for critical in CRITICAL_MODULES:
+        if Path(critical).is_file():
+            targets.add(critical)
+    return sorted(targets)
 
 
 def select_mutation_targets(changed_files: list[str]) -> list[str]:
@@ -119,23 +142,8 @@ def inject_only_mutate(app_files: list[str]) -> str:
     return original
 
 
-def main() -> int:
-    changed = get_changed_app_files()
-    targets = select_mutation_targets(changed)
-
-    out_of_scope = sorted(f for f in changed if not is_allowlisted(f))
-    if out_of_scope:
-        print("Out-of-scope app/ changes (not mutated): " + ", ".join(out_of_scope))
-
-    if not targets:
-        write_skipped_stats(
-            reason=(
-                "No allowlisted financial modules changed versus origin/main "
-                "(presentation/API/MCP/orchestrator diffs are out of mutation scope)."
-            )
-        )
-        return 0
-
+def run_mutation(targets: list[str]) -> int:
+    """Inject only_mutate, run mutmut + export, restore pyproject. Return exit code."""
     print(f"Running mutmut on: {', '.join(targets)}", flush=True)
 
     original_pyproject = inject_only_mutate(targets)
@@ -144,8 +152,6 @@ def main() -> int:
         E2E_TEST.rename(E2E_HIDDEN)
         e2e_was_hidden = True
 
-    run_rc = 1
-    export_rc = 1
     try:
         run_rc = subprocess.run(
             ["uv", "run", "mutmut", "run"],
@@ -182,6 +188,44 @@ def main() -> int:
         PYPROJECT.write_text(original_pyproject, encoding="utf-8")
 
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--full-allowlist",
+        action="store_true",
+        help=(
+            "Mutate every allowlisted financial module (nightly / main gate). "
+            "Default is diff-scoped versus origin/main."
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    if args.full_allowlist:
+        targets = list_allowlisted_modules()
+        if not targets:
+            write_skipped_stats(reason="Full allowlist requested but no modules found.")
+            return 1
+        return run_mutation(targets)
+
+    changed = get_changed_app_files()
+    targets = select_mutation_targets(changed)
+
+    out_of_scope = sorted(f for f in changed if not is_allowlisted(f))
+    if out_of_scope:
+        print("Out-of-scope app/ changes (not mutated): " + ", ".join(out_of_scope))
+
+    if not targets:
+        write_skipped_stats(
+            reason=(
+                "No allowlisted financial modules changed versus origin/main "
+                "(presentation/API/MCP/orchestrator diffs are out of mutation scope)."
+            )
+        )
+        return 0
+
+    return run_mutation(targets)
 
 
 if __name__ == "__main__":

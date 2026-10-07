@@ -21,9 +21,13 @@ class TestValidateCloudSql:
         with pytest.raises(CloudToolError, match="must not be empty"):
             _validate_cloud_sql("")
 
-    def test_select_allowed(self):
-        result = _validate_cloud_sql("SELECT * FROM accounts;")
-        assert "SELECT" in result
+    def test_select_star_denied(self):
+        with pytest.raises(CloudToolError, match="forbid SELECT \\*"):
+            _validate_cloud_sql("SELECT * FROM accounts;")
+
+    def test_select_without_aggregation_denied(self):
+        with pytest.raises(CloudToolError, match="require at least one aggregation"):
+            _validate_cloud_sql("SELECT account_id FROM accounts;")
 
     def test_insert_denied(self):
         with pytest.raises(CloudToolError, match="only allow SELECT"):
@@ -46,8 +50,21 @@ class TestValidateCloudSql:
         assert "COUNT" in result
 
     def test_disallowed_table_raises(self):
-        with pytest.raises(CloudToolError, match="cannot query table"):
-            _validate_cloud_sql("SELECT * FROM raw_pages;")
+        with pytest.raises(CloudToolError, match="raw_\\*"):
+            _validate_cloud_sql("SELECT COUNT(*) FROM raw_pages;")
+
+    def test_raw_join_denied(self):
+        with pytest.raises(CloudToolError, match="raw_\\*"):
+            _validate_cloud_sql(
+                "SELECT COUNT(*) FROM transactions t "
+                "JOIN raw_pages r ON t.statement_id = r.run_id;"
+            )
+
+    def test_description_column_denied(self):
+        with pytest.raises(CloudToolError, match="row-level column"):
+            _validate_cloud_sql(
+                "SELECT description, COUNT(*) FROM transactions GROUP BY description;"
+            )
 
     def test_injection_comment_raises(self):
         with pytest.raises(CloudToolError, match="injection"):
@@ -59,7 +76,7 @@ class TestValidateCloudSql:
 
     def test_or1eq1_raises(self):
         with pytest.raises(CloudToolError, match="injection"):
-            _validate_cloud_sql("SELECT * FROM accounts WHERE 1=1 OR 1 = 1")
+            _validate_cloud_sql("SELECT COUNT(*) FROM accounts WHERE 1=1 OR 1 = 1")
 
     def test_count_aggregation_allowed(self):
         result = _validate_cloud_sql("SELECT COUNT(*) FROM transactions;")
@@ -87,7 +104,9 @@ class TestValidateCloudSql:
 
     def test_join_allowed(self):
         result = _validate_cloud_sql(
-            "SELECT a.account_mask, COUNT(*) FROM transactions t JOIN accounts a ON t.statement_id = a.account_id GROUP BY a.account_mask;"
+            "SELECT a.account_type, COUNT(*) FROM transactions t "
+            "JOIN accounts a ON t.statement_id = a.account_id "
+            "GROUP BY a.account_type;"
         )
         assert "JOIN" in result
 
@@ -125,11 +144,11 @@ class TestValidateParametersCloud:
 class TestExecuteCloudQuery:
     def test_select_returns_rows(self, postgres_url):
         result = execute_cloud_query(
-            "SELECT 1 AS val;",
+            "SELECT COUNT(*) AS val FROM extraction_runs;",
             database_url=postgres_url,
         )
         assert isinstance(result, list)
-        assert result[0]["val"] == 1
+        assert "val" in result[0]
 
     def test_count_query(self, postgres_url):
         result = execute_cloud_query(
@@ -141,11 +160,11 @@ class TestExecuteCloudQuery:
 
     def test_parameterized_query(self, postgres_url):
         result = execute_cloud_query(
-            "SELECT %s AS val;",
-            parameters=[42],
+            "SELECT COUNT(*) AS cnt FROM extraction_runs WHERE %s = %s;",
+            parameters=[1, 1],
             database_url=postgres_url,
         )
-        assert result[0]["val"] == 42
+        assert "cnt" in result[0]
 
     def test_denied_insert_raises(self, postgres_url):
         with pytest.raises(CloudToolError, match="only allow SELECT"):
@@ -158,17 +177,22 @@ class TestExecuteCloudQuery:
             execute_cloud_query("UPDATE accounts SET x = 1;", database_url=postgres_url)
 
     def test_denied_table_raises(self, postgres_url):
-        with pytest.raises(CloudToolError, match="cannot query table"):
-            execute_cloud_query("SELECT * FROM raw_pages;", database_url=postgres_url)
+        with pytest.raises(CloudToolError, match="raw_\\*"):
+            execute_cloud_query(
+                "SELECT COUNT(*) FROM raw_pages;", database_url=postgres_url
+            )
 
     def test_injection_in_sql_raises(self, postgres_url):
         with pytest.raises(CloudToolError, match="injection"):
-            execute_cloud_query("SELECT 1; DROP TABLE foo;", database_url=postgres_url)
+            execute_cloud_query(
+                "SELECT COUNT(*) FROM accounts; DROP TABLE foo;",
+                database_url=postgres_url,
+            )
 
     def test_injection_in_parameter_raises(self, postgres_url):
         with pytest.raises(CloudToolError, match="injection"):
             execute_cloud_query(
-                "SELECT %s;",
+                "SELECT COUNT(*) FROM extraction_runs WHERE %s IS NOT NULL;",
                 parameters=["foo; DROP TABLE bar"],
                 database_url=postgres_url,
             )
@@ -176,7 +200,7 @@ class TestExecuteCloudQuery:
     def test_invalid_parameter_type_raises(self, postgres_url):
         with pytest.raises(CloudToolError, match="unsupported type"):
             execute_cloud_query(
-                "SELECT %s;",
+                "SELECT COUNT(*) FROM extraction_runs WHERE %s IS NOT NULL;",
                 parameters=[object()],
                 database_url=postgres_url,
             )
@@ -239,14 +263,9 @@ class TestGetFinancialSummary:
         with pytest.raises(CloudToolError, match="Invalid group_by column"):
             get_financial_summary(group_by="raw_page_id")
 
-    def test_group_by_description(self, postgres_url):
-        result = get_financial_summary(
-            group_by="description",
-            database_url=postgres_url,
-        )
-        assert result["group_by_column"] == "description"
-        assert "totals" in result
-        assert "per_group" in result
+    def test_group_by_description_denied(self):
+        with pytest.raises(CloudToolError, match="Invalid group_by column"):
+            get_financial_summary(group_by="description")
 
     def test_group_by_statement_id(self, postgres_url):
         result = get_financial_summary(

@@ -53,6 +53,18 @@ _INJECTION_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+_FORBIDDEN_ROW_COLUMNS = frozenset(
+    {
+        "description",
+        "account_mask",
+        "page_text",
+        "original_basename",
+        "content_sha256",
+    }
+)
+
+_RAW_TABLE_PATTERN = re.compile(r"\braw_\w+\b", re.IGNORECASE)
+
 
 class CloudToolError(PipelineError):
     """Raised when a cloud tool input validation or execution fails."""
@@ -61,7 +73,8 @@ class CloudToolError(PipelineError):
 def _validate_cloud_sql(sql: str) -> str:
     """Validate a cloud-tier SQL statement.
 
-    Enforces: SELECT only, allowed tables, allowed aggregations, no injection.
+    Enforces: SELECT only, required aggregations, no SELECT *, no raw_* JOINs,
+    no row-level PII columns, allowed tables only, no injection.
     Raises CloudToolError if validation fails.
     """
     stripped = sql.strip()
@@ -75,6 +88,31 @@ def _validate_cloud_sql(sql: str) -> str:
     if _INJECTION_PATTERNS.search(stripped):
         raise CloudToolError("SQL statement contains potential injection pattern.")
 
+    if re.search(r"SELECT\s+\*", stripped, re.IGNORECASE):
+        raise CloudToolError(
+            "Cloud tools forbid SELECT *; use explicit aggregate expressions."
+        )
+
+    # Ban JOIN (and comma-join) to any raw_* table
+    if _RAW_TABLE_PATTERN.search(stripped):
+        raise CloudToolError(
+            "Cloud tools forbid referencing raw_* tables (including JOINs)."
+        )
+
+    join_targets = re.findall(
+        r"\bJOIN\s+(\w+)",
+        stripped,
+        re.IGNORECASE,
+    )
+    for table in join_targets:
+        if table.lower().startswith("raw_"):
+            raise CloudToolError(f"Cloud tools forbid JOIN to raw table '{table}'.")
+        if table.lower() not in {t.lower() for t in _ALLOWED_TABLES}:
+            raise CloudToolError(
+                f"Cloud tools cannot join table '{table}'. "
+                f"Allowed tables: {sorted(_ALLOWED_TABLES)}"
+            )
+
     from_tables = re.findall(r"\bFROM\s+(\w+)", stripped, re.IGNORECASE)
     for table in from_tables:
         if table.lower() not in {t.lower() for t in _ALLOWED_TABLES}:
@@ -83,11 +121,35 @@ def _validate_cloud_sql(sql: str) -> str:
                 f"Allowed tables: {sorted(_ALLOWED_TABLES)}"
             )
 
+    # Comma joins: FROM a, b
+    comma_join = re.search(
+        r"\bFROM\s+\w+\s*,\s*(\w+)",
+        stripped,
+        re.IGNORECASE,
+    )
+    if comma_join:
+        joined = comma_join.group(1)
+        if joined.lower().startswith("raw_") or joined.lower() not in {
+            t.lower() for t in _ALLOWED_TABLES
+        }:
+            raise CloudToolError(f"Cloud tools forbid comma-join to table '{joined}'.")
+
+    for col in _FORBIDDEN_ROW_COLUMNS:
+        if re.search(rf"\b{col}\b", stripped, re.IGNORECASE):
+            raise CloudToolError(
+                f"Cloud tools forbid selecting row-level column '{col}'."
+            )
+
     aggs_found = re.findall(
         r"\b(SUM|COUNT|AVG|MIN|MAX|SUM_DISTINCT|COUNT_DISTINCT)\s*\(",
         stripped,
         re.IGNORECASE,
     )
+    if not aggs_found:
+        raise CloudToolError(
+            "Cloud tools require at least one aggregation "
+            f"({sorted(_ALLOWED_AGGREGATIONS)})."
+        )
     for agg in aggs_found:
         if agg.upper() not in _ALLOWED_AGGREGATIONS:
             raise CloudToolError(
@@ -259,7 +321,6 @@ def get_financial_summary(
             "transaction_category",
             "statement_id",
             "account_id",
-            "description",
         }
     )
     if group_by not in allowed_group_columns:

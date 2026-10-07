@@ -1,0 +1,91 @@
+name: Mutation Nightly
+
+# Full allowlist mutation gate runs on main overnight (and on demand).
+# Pull requests are NOT blocked by mutation — they keep lint + coverage + agent review.
+on:
+  schedule:
+    # 08:00 UTC daily
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/pipeline/**"
+      - "app/adapters/**"
+      - "app/extraction/**"
+      - "app/models/**"
+      - "app/db/repository.py"
+      - "app/db/connection.py"
+      - "app/db/__init__.py"
+      - "scripts/run_mutation_on_diff.py"
+      - "scripts/check_mutation_score.py"
+      - "pyproject.toml"
+      - ".github/workflows/mutation-nightly.yml"
+
+concurrency:
+  group: mutation-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation:
+    name: Mutation Testing (main)
+    runs-on: ubuntu-latest
+    # Failures here are required for main health, not for PR merge.
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: assassin
+          POSTGRES_DB: assassin_test
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --tmpfs /var/lib/postgresql/data
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync
+      - name: Initialize Test Database Schema
+        env:
+          PGPASSWORD: assassin
+        run: psql -h localhost -p 54329 -U postgres -d assassin_test -f app/db/schema.sql
+      - name: Resolve mutmut cache fingerprint
+        id: mutmut_meta
+        run: |
+          MUTMUT_VER=$(uv run python -c 'import importlib.metadata as m; print(m.version("mutmut"))')
+          CONFIG_HASH=$(sha256sum pyproject.toml scripts/run_mutation_on_diff.py scripts/check_mutation_score.py | sha256sum | cut -d' ' -f1)
+          echo "mutmut_ver=${MUTMUT_VER}" >> "$GITHUB_OUTPUT"
+          echo "config_hash=${CONFIG_HASH}" >> "$GITHUB_OUTPUT"
+      - name: Cache mutmut
+        uses: actions/cache@v4
+        with:
+          path: .mutmut-cache
+          key: mutmut-nightly-${{ steps.mutmut_meta.outputs.mutmut_ver }}-${{ steps.mutmut_meta.outputs.config_hash }}-${{ github.sha }}
+      - name: Run full-allowlist mutation & quality score gate
+        # Playwright is intentionally NOT installed: E2E tests are ignored via
+        # [tool.mutmut] pytest_add_cli_args and hidden by run_mutation_on_diff.py.
+        run: |
+          uv run python scripts/run_mutation_on_diff.py --full-allowlist
+          uv run python scripts/check_mutation_score.py --min-score 55.0 --max-no-tests 0
+      - name: Upload mutation stats artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutmut-cicd-stats
+          path: mutants/mutmut-cicd-stats.json
+          if-no-files-found: ignore

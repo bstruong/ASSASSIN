@@ -8,7 +8,25 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+
+def _repo_root() -> Path:
+    """Resolve repo root even when this file is mirrored under ``mutants/``.
+
+    mutmut copies ``app/`` (and tests) into ``mutants/`` but not ``scripts/``.
+    Walk parents until ``scripts/run_mutation_on_diff.py`` is found.
+    """
+    here = Path(__file__).resolve()
+    for candidate in here.parents:
+        script = candidate / "scripts" / "run_mutation_on_diff.py"
+        if script.is_file():
+            return candidate
+    raise FileNotFoundError(
+        "Could not locate scripts/run_mutation_on_diff.py from "
+        f"{here} (mutmut mutants/ tree lacks scripts/; resolve from repo root)."
+    )
+
+
+ROOT = _repo_root()
 SCRIPTS = ROOT / "scripts"
 
 
@@ -29,6 +47,11 @@ def runner():
 @pytest.fixture(scope="module")
 def checker():
     return _load("check_mutation_score", SCRIPTS / "check_mutation_score.py")
+
+
+def test_repo_root_resolves_scripts() -> None:
+    assert (ROOT / "scripts" / "run_mutation_on_diff.py").is_file()
+    assert (ROOT / "pyproject.toml").is_file()
 
 
 class TestAllowlistSelection:
@@ -55,6 +78,14 @@ class TestAllowlistSelection:
         targets = runner.select_mutation_targets(["app/adapters/depository.py"])
         assert "app/adapters/depository.py" in targets
         assert "app/pipeline/validator.py" in targets
+
+    def test_full_allowlist_includes_financial_surface(self, runner) -> None:
+        targets = runner.list_allowlisted_modules()
+        assert "app/pipeline/validator.py" in targets
+        assert any(t.startswith("app/adapters/") for t in targets)
+        assert all(runner.is_allowlisted(t) for t in targets)
+        assert not any(t.startswith("app/api/") for t in targets)
+        assert not any(t.startswith("app/mcp/") for t in targets)
 
 
 class TestClassicScore:

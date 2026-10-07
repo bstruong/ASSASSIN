@@ -59,98 +59,60 @@ class TestSqlExecutionRequestValidation:
 
 
 class TestExecuteSqlPlan:
-    """Test the POST /v1/orchestrator/execute_sql endpoint."""
+    """Test the POST /v1/orchestrator/execute_sql quarantine."""
 
     def _create_client(self):
         from app.api.app import create_app
 
         app = create_app()
-        # Include the orchestrator router
         from app.routers.orchestrator import router as orchestrator_router
 
         app.include_router(orchestrator_router)
         return TestClient(app)
 
-    def test_success_simple_select(self):
+    def test_tier1_egress_quarantined(self):
         client = self._create_client()
         payload = {"sql": "SELECT 1 AS val;"}
         response = client.post("/v1/orchestrator/execute_sql", json=payload)
-        assert response.status_code == 200
-        result = response.json()
-        assert result["status"] == "completed"
-        assert result["row_count"] == 1
+        assert response.status_code == 501
+        result = response.json()["detail"]
+        assert result["status"] == "failed"
+        assert result["error_code"] == "FRONTIER_QUARANTINED"
         assert "execution_id" in result
+        assert "results" not in result
 
-    def test_success_with_parameters(self, postgres_url):
-        client = self._create_client()
-        payload = {
-            "sql": "SELECT %s AS val;",
-            "parameters": [42],
-        }
-        response = client.post("/v1/orchestrator/execute_sql", json=payload)
-        assert response.status_code == 200
-        result = response.json()
-        assert result["status"] == "completed"
-        assert result["row_count"] == 1
-
-    def test_success_with_plan_id(self):
+    def test_quarantine_with_plan_id(self):
         client = self._create_client()
         payload = {"sql": "SELECT 1;", "plan_id": "frontier-plan-001"}
         response = client.post("/v1/orchestrator/execute_sql", json=payload)
-        assert response.status_code == 200
-        result = response.json()
+        assert response.status_code == 501
+        result = response.json()["detail"]
         assert result["plan_id"] == "frontier-plan-001"
-
-    def test_invalid_sql_denied(self):
-        client = self._create_client()
-        payload = {"sql": "INVALID SQL"}
-        response = client.post("/v1/orchestrator/execute_sql", json=payload)
-        assert response.status_code == 200
-        result = response.json()
-        assert result["status"] == "failed"
-        assert result["error_code"] == "SQL_VALIDATION_ERROR"
-
-    def test_empty_sql_denied(self):
-        client = self._create_client()
-        payload = {"sql": "   "}
-        response = client.post("/v1/orchestrator/execute_sql", json=payload)
-        assert response.status_code == 200
-        result = response.json()
-        assert result["status"] == "failed"
-        assert result["error_code"] == "SQL_VALIDATION_ERROR"
-
-    def test_injection_sql_denied(self):
-        client = self._create_client()
-        payload = {"sql": "SELECT 1; DROP TABLE accounts;"}
-        response = client.post("/v1/orchestrator/execute_sql", json=payload)
-        assert response.status_code == 200
-        result = response.json()
-        assert result["status"] == "failed"
-        assert result["error_code"] == "SQL_VALIDATION_ERROR"
+        assert result["error_code"] == "FRONTIER_QUARANTINED"
 
     def test_invalid_payload_rejected(self):
         client = self._create_client()
-        # Missing required 'sql' field
         response = client.post("/v1/orchestrator/execute_sql", json={})
         assert response.status_code == 422
 
-    def test_execution_store_updated_on_success(self):
+    def test_execution_store_updated_on_quarantine(self):
         client = self._create_client()
         payload = {"sql": "SELECT 1;"}
         response = client.post("/v1/orchestrator/execute_sql", json=payload)
-        result = response.json()
-        execution_id = result["execution_id"]
-        assert execution_id in _execution_store
-        assert _execution_store[execution_id]["status"] == "completed"
-
-    def test_execution_store_updated_on_failure(self):
-        client = self._create_client()
-        payload = {"sql": "INVALID SQL"}
-        response = client.post("/v1/orchestrator/execute_sql", json=payload)
-        result = response.json()
+        result = response.json()["detail"]
         execution_id = result["execution_id"]
         assert execution_id in _execution_store
         assert _execution_store[execution_id]["status"] == "failed"
+        assert _execution_store[execution_id]["error_code"] == "FRONTIER_QUARANTINED"
+
+    def test_production_app_does_not_mount_orchestrator(self):
+        from app.api.app import create_app
+
+        app = create_app()
+        paths = {getattr(r, "path", None) for r in app.routes}
+        assert not any(
+            isinstance(p, str) and p.startswith("/v1/orchestrator") for p in paths
+        )
 
 
 # ── get_execution_status Endpoint ────────────────────────────────────
@@ -168,33 +130,21 @@ class TestGetExecutionStatus:
         app.include_router(orchestrator_router)
         return TestClient(app)
 
-    def test_status_completed(self):
+    def test_status_quarantined(self):
         client = self._create_client()
-        # First execute a query to populate the store
         client.post("/v1/orchestrator/execute_sql", json={"sql": "SELECT 1;"})
-        # Get the execution_id from the store
         execution_id = next(iter(_execution_store.keys()))
         response = client.get(f"/v1/orchestrator/status/{execution_id}")
         assert response.status_code == 200
         result = response.json()
-        assert result["status"] == "completed"
+        assert result["status"] == "failed"
+        assert result["error_code"] == "FRONTIER_QUARANTINED"
         assert result["execution_id"] == execution_id
 
     def test_status_not_found(self):
         client = self._create_client()
         response = client.get("/v1/orchestrator/status/nonexistent-id")
         assert response.status_code == 404
-
-    def test_status_failed(self):
-        client = self._create_client()
-        # Execute invalid SQL to create a failed entry
-        client.post("/v1/orchestrator/execute_sql", json={"sql": "INVALID SQL"})
-        execution_id = next(iter(_execution_store.keys()))
-        response = client.get(f"/v1/orchestrator/status/{execution_id}")
-        assert response.status_code == 200
-        result = response.json()
-        assert result["status"] == "failed"
-        assert result["error_code"] == "SQL_VALIDATION_ERROR"
 
 
 # ── get_database_schemas Endpoint ────────────────────────────────────

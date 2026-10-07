@@ -30,6 +30,9 @@ def main() -> int:
 
     pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
     ci = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    nightly = (root / ".github" / "workflows" / "mutation-nightly.yml").read_text(
+        encoding="utf-8"
+    )
     runner = (root / "scripts" / "run_mutation_on_diff.py").read_text(encoding="utf-8")
     checker = (root / "scripts" / "check_mutation_score.py").read_text(encoding="utf-8")
 
@@ -55,14 +58,21 @@ def main() -> int:
         "5. E2E ignore in pyproject mutmut args",
         "--ignore=tests/test_e2e_dashboard.py" in pyproject,
     )
-    mutation_job = ci.split("mutation:", 1)[1]
     check(
-        "6. Mutation job skips Playwright install",
-        "playwright install" not in mutation_job,
+        "6. PR CI does not run mutation job",
+        "mutation:" not in ci and "check_mutation_score.py" not in ci,
     )
     check(
-        "7. Cache fingerprint uses mutmut_ver + config_hash",
-        "mutmut_ver" in mutation_job and "config_hash" in mutation_job,
+        "6. Nightly workflow runs full allowlist mutation",
+        "--full-allowlist" in nightly and "check_mutation_score.py" in nightly,
+    )
+    check(
+        "6. Nightly mutation job skips Playwright install",
+        "playwright install" not in nightly,
+    )
+    check(
+        "7. Nightly cache fingerprint uses mutmut_ver + config_hash",
+        "mutmut_ver" in nightly and "config_hash" in nightly,
     )
     check(
         "8. Dashboard documents out-of-mutation-scope",
@@ -75,8 +85,8 @@ def main() -> int:
     print("Evaluating historic HTMX-style stats via check_mutation_score helpers...")
     res = subprocess.run(
         [
-            "uv",
-            "run",
+            sys.executable,
+            "-m",
             "pytest",
             "tests/test_mutation_gates.py",
             "-q",

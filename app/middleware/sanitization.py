@@ -11,10 +11,15 @@ PII patterns detected and redacted:
 - Email addresses
 - Phone numbers
 - Physical street addresses (patterns like "123 Main St")
-- Unmasked monetary amounts (stored as cents)
+- Unmasked monetary amount *strings* (not integer ``*_cents`` aggregates)
+
+On frontier paths (``/chat/frontier/*``, ``/v1/orchestrator/*``), row-level
+keys ``description``, ``account_mask``, and ``page_text`` are always scrubbed
+so they cannot leak via JSON responses. Local ingest routes may still return
+safe ``account_mask`` values.
 
 All redactions are logged with structured JSON for observability
-without leaking actual PII.
+without leaking actual PII (logs never include the matched secret text).
 """
 
 from __future__ import annotations
@@ -33,6 +38,18 @@ from starlette.middleware.base import (
 from starlette.responses import StreamingResponse
 
 logger = logging.getLogger("app.middleware.sanitization")
+
+_FRONTIER_PATH_PREFIXES = ("/chat/frontier", "/v1/orchestrator")
+
+_ROW_PII_KEYS = frozenset(
+    {
+        "description",
+        "account_mask",
+        "page_text",
+        "original_basename",
+        "content_sha256",
+    }
+)
 
 # PII / Sensitive Data Patterns
 
@@ -72,6 +89,15 @@ _MONEY_FIELD_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ),
 ]
 
+_MONEY_KEY_RE = re.compile(
+    r"(?:^|_)(?:amount|balance|payment|charge|fee)(?:$|_)",
+    re.IGNORECASE,
+)
+
+
+def _is_frontier_path(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in _FRONTIER_PATH_PREFIXES)
+
 
 def _redact_text(text: str) -> str:
     """Redact all known PII patterns from a text string."""
@@ -99,21 +125,39 @@ def _redact_text(text: str) -> str:
     return text
 
 
-def _redact_value(value: Any, key: str | None = None) -> Any:
+def _is_money_key(key: str) -> bool:
+    """Return True for money-like keys that are not integer-cent fields."""
+    if key.lower().endswith("_cents"):
+        return False
+    return bool(_MONEY_KEY_RE.search(key))
+
+
+def _redact_value(
+    value: Any,
+    key: str | None = None,
+    *,
+    scrub_row_pii: bool = False,
+) -> Any:
     """Recursively redact PII from a value (string, dict, list, or primitive)."""
+    if scrub_row_pii and key and isinstance(key, str) and key.lower() in _ROW_PII_KEYS:
+        return "[REDACTED]"
     if (
         key
         and isinstance(key, str)
-        and re.search(r"amount|balance|payment|charge|fee|total", key, re.IGNORECASE)
-        and isinstance(value, (int, float, str))
+        and _is_money_key(key)
+        and isinstance(value, (float, str))
     ):
+        # Preserve integer cents aggregates; redact float/string money only.
         return "[REDACTED_AMOUNT]"
     if isinstance(value, str):
         return _redact_text(value)
     if isinstance(value, dict):
-        return {k: _redact_value(v, key=k) for k, v in value.items()}
+        return {
+            k: _redact_value(v, key=k, scrub_row_pii=scrub_row_pii)
+            for k, v in value.items()
+        }
     if isinstance(value, (list, tuple)):
-        return [_redact_value(item) for item in value]
+        return [_redact_value(item, scrub_row_pii=scrub_row_pii) for item in value]
     return value
 
 
@@ -124,6 +168,8 @@ class PiiSanitizationMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         """Dispatch handler: redact PII from request and response bodies."""
+        scrub_row_pii = _is_frontier_path(request.url.path)
+
         # Redact request body
         body = await request.body()
         request_content_type = request.headers.get("content-type", "")
@@ -131,7 +177,7 @@ class PiiSanitizationMiddleware(BaseHTTPMiddleware):
         if body and request_content_type.startswith("application/json"):
             try:
                 payload = json.loads(body)
-                redacted_payload = _redact_value(payload)
+                redacted_payload = _redact_value(payload, scrub_row_pii=scrub_row_pii)
                 if redacted_payload != payload:
                     body = json.dumps(redacted_payload).encode("utf-8")
                     logger.info(
@@ -165,14 +211,22 @@ class PiiSanitizationMiddleware(BaseHTTPMiddleware):
             if response_body:
                 try:
                     resp_data = json.loads(response_body)
-                    redacted_resp = _redact_value(resp_data)
+                    redacted_resp = _redact_value(
+                        resp_data, scrub_row_pii=scrub_row_pii
+                    )
                     logger.info(
                         "Response body PII processed",
                         extra={"route": request.url.path},
                     )
+                    headers = {
+                        k: v
+                        for k, v in response.headers.items()
+                        if k.lower() not in {"content-length", "content-type"}
+                    }
                     return Response(
                         content=json.dumps(redacted_resp).encode("utf-8"),
                         status_code=response.status_code,
+                        headers=headers,
                         media_type="application/json",
                     )
                 except (json.JSONDecodeError, UnicodeDecodeError):

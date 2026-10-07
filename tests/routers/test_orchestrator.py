@@ -64,11 +64,7 @@ class TestExecuteSqlPlan:
     def _create_client(self):
         from app.api.app import create_app
 
-        app = create_app()
-        from app.routers.orchestrator import router as orchestrator_router
-
-        app.include_router(orchestrator_router)
-        return TestClient(app)
+        return TestClient(create_app())
 
     def test_tier1_egress_quarantined(self):
         client = self._create_client()
@@ -105,14 +101,13 @@ class TestExecuteSqlPlan:
         assert _execution_store[execution_id]["status"] == "failed"
         assert _execution_store[execution_id]["error_code"] == "FRONTIER_QUARANTINED"
 
-    def test_production_app_does_not_mount_orchestrator(self):
+    def test_production_app_mounts_orchestrator_quarantine(self):
         from app.api.app import create_app
 
         app = create_app()
-        paths = {getattr(r, "path", None) for r in app.routes}
-        assert not any(
-            isinstance(p, str) and p.startswith("/v1/orchestrator") for p in paths
-        )
+        paths = set(app.openapi()["paths"])
+        assert "/v1/orchestrator/execute_sql" in paths
+        assert "/chat/frontier/audit" in paths
 
 
 # ── get_execution_status Endpoint ────────────────────────────────────
@@ -124,11 +119,7 @@ class TestGetExecutionStatus:
     def _create_client(self):
         from app.api.app import create_app
 
-        app = create_app()
-        from app.routers.orchestrator import router as orchestrator_router
-
-        app.include_router(orchestrator_router)
-        return TestClient(app)
+        return TestClient(create_app())
 
     def test_status_quarantined(self):
         client = self._create_client()
@@ -156,11 +147,7 @@ class TestGetDatabaseSchemas:
     def _create_client(self):
         from app.api.app import create_app
 
-        app = create_app()
-        from app.routers.orchestrator import router as orchestrator_router
-
-        app.include_router(orchestrator_router)
-        return TestClient(app)
+        return TestClient(create_app())
 
     def test_schemas_returned(self, postgres_url):
         """Test that schema endpoint returns table metadata."""

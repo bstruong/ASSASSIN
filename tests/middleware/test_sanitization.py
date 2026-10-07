@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 
 from app.middleware.sanitization import (
     PiiSanitizationMiddleware,
+    _is_frontier_path,
     _redact_text,
     _redact_value,
 )
@@ -122,6 +123,37 @@ class TestRedactValue:
 
     def test_empty_list(self):
         assert _redact_value([]) == []
+
+    def test_integer_cents_preserved(self):
+        data = {"total_deposits_cents": 12345, "amount": 12.34}
+        result = _redact_value(data)
+        assert result["total_deposits_cents"] == 12345
+        assert result["amount"] == "[REDACTED_AMOUNT]"
+
+    def test_frontier_row_pii_keys_scrubbed(self):
+        data = {
+            "description": "SECRET PAYEE",
+            "account_mask": "*9999",
+            "page_text": "ocr dump",
+            "txn_count": 3,
+        }
+        result = _redact_value(data, scrub_row_pii=True)
+        assert result["description"] == "[REDACTED]"
+        assert result["account_mask"] == "[REDACTED]"
+        assert result["page_text"] == "[REDACTED]"
+        assert result["txn_count"] == 3
+
+    def test_non_frontier_account_mask_preserved(self):
+        data = {"account_mask": "*1234"}
+        result = _redact_value(data, scrub_row_pii=False)
+        assert result["account_mask"] == "*1234"
+
+
+class TestFrontierPathDetection:
+    def test_frontier_prefixes(self):
+        assert _is_frontier_path("/chat/frontier/audit") is True
+        assert _is_frontier_path("/v1/orchestrator/execute_sql") is True
+        assert _is_frontier_path("/api/v1/health") is False
 
 
 # ── PiiSanitizationMiddleware ────────────────────────────────────────

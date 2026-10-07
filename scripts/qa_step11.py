@@ -1,18 +1,20 @@
 #!/usr/bin/env python
 """QA Verification Script: Step 11 - Frontier quarantine + PII middleware.
 
-This script verifies that Tier-1 frontier SQL egress is quarantined and that
-PII sanitization middleware still redacts sensitive fields.
+This script verifies that Tier-1 frontier SQL egress remains quarantined,
+aggregate-only handoff is mounted, and PII sanitization middleware is wired
+into production create_app.
 
 Run with: uv run python scripts/qa_step11.py
 
 Features verified:
   1. Orchestrator execute_sql returns 501 (quarantined; no Tier-1 row sets).
-  2. Production app does not mount the orchestrator router.
-  3. PII sanitization middleware redacts SSN, email, phone, full accounts.
-  4. Financial amounts are redacted from responses.
-  5. Schema introspection endpoint returns table metadata without PII.
-  6. Quarantine status tracking records FRONTIER_QUARANTINED.
+  2. Production app mounts frontier audit + orchestrator quarantine routes.
+  3. Production create_app mounts PiiSanitizationMiddleware.
+  4. PII sanitization middleware redacts SSN, email, phone, full accounts.
+  5. Financial amount strings are redacted; integer *_cents preserved.
+  6. Schema introspection endpoint returns table metadata without PII.
+  7. Quarantine status tracking records FRONTIER_QUARANTINED.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import json
 import sys
 from pathlib import Path
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 # Ensure project root is on path
@@ -29,7 +32,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.api.app import create_app
 from app.middleware.sanitization import PiiSanitizationMiddleware
-from app.routers.orchestrator import router as orchestrator_router
 
 # ── Test Harness ─────────────────────────────────────────────────────
 
@@ -66,16 +68,7 @@ report = QAReport()
 
 # ── App Setup ────────────────────────────────────────────────────────
 
-
-def create_test_app():
-    """Create a FastAPI app with all Step 11 components."""
-    app = create_app()
-    app.add_middleware(PiiSanitizationMiddleware)
-    app.include_router(orchestrator_router)
-    return app
-
-
-client = TestClient(create_test_app())
+client = TestClient(create_app())
 
 # ── Verification: Feature 1 — Frontier Tier-1 Quarantine ─────────────
 
@@ -109,18 +102,27 @@ report.record(
     f"plan_id={detail.get('plan_id')}",
 )
 
-# ── Verification: Feature 2 — Production does not mount orchestrator ─
+# ── Verification: Feature 2 — Production mounts frontier + quarantine ─
 
 print("\n" + "=" * 60)
-print("Feature 2: Production App Does Not Mount Orchestrator")
+print("Feature 2: Production App Mounts Frontier Aggregate Handoff")
 print("=" * 60)
 
 prod_app = create_app()
-prod_paths = {getattr(r, "path", None) for r in prod_app.routes}
+prod_paths = set(prod_app.openapi()["paths"])
 report.record(
-    "Production create_app omits /v1/orchestrator routes",
-    not any(
-        isinstance(p, str) and p.startswith("/v1/orchestrator") for p in prod_paths
+    "Production create_app mounts /chat/frontier/audit",
+    "/chat/frontier/audit" in prod_paths,
+)
+report.record(
+    "Production create_app mounts /v1/orchestrator quarantine",
+    "/v1/orchestrator/execute_sql" in prod_paths,
+)
+report.record(
+    "Production create_app mounts PiiSanitizationMiddleware",
+    any(
+        getattr(m, "cls", None) is PiiSanitizationMiddleware
+        for m in prod_app.user_middleware
     ),
 )
 
@@ -129,10 +131,6 @@ report.record(
 print("\n" + "=" * 60)
 print("Feature 3: PII Sanitization Middleware")
 print("=" * 60)
-
-# Create a test app with a route that echoes PII
-from fastapi import FastAPI
-from starlette.testclient import TestClient
 
 pii_app = FastAPI()
 
@@ -150,6 +148,7 @@ async def response_endpoint():
         "email": "user@example.com",
         "amount_detail": "amount: 1234.56",
         "account": "1234567890123456",
+        "total_deposits_cents": 9999,
     }
 
 
@@ -194,8 +193,12 @@ report.record(
     "user@example.com" not in str(result),
 )
 report.record(
-    "Financial amount redacted from response",
+    "Financial amount string redacted from response",
     "1234.56" not in str(result),
+)
+report.record(
+    "Integer cents preserved through middleware",
+    result.get("total_deposits_cents") == 9999,
 )
 
 # ── Verification: Feature 4 — Schema Introspection ───────────────────

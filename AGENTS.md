@@ -9,7 +9,7 @@ Agents must verify their work using the following commands:
 - **Lint:** `uv run ruff check .`
 - **Format Check:** `uv run ruff format --check .` (Format fix: `uv run ruff format .`)
 - **Test with Coverage Gate (>90%):** `uv run pytest --cov=app --cov-fail-under=90 -v`
-- **Mutation Testing Gate:** `uv run mutmut run && uv run mutmut export-cicd-stats && uv run python scripts/check_mutation_score.py`
+- **Mutation Testing (local / nightly):** `uv run python scripts/run_mutation_on_diff.py --full-allowlist && uv run python scripts/check_mutation_score.py --min-score 55.0 --max-no-tests 0` (PR CI does **not** run mutmut; see `.github/workflows/mutation-nightly.yml`)
 - **Agent Invariant Review:** `uv run python scripts/agent_review.py`
 
 ## Core Invariants
@@ -69,10 +69,10 @@ All feature development and adapter implementations must strictly adhere to Test
 
 5. **Mutation Testing Mandate (Killing Injected Defects):**
    - High code coverage alone is meaningless if tests merely execute lines of code without validating outcomes. Tests must be robust enough to **kill mutations**.
-   - Agents must run mutation testing via `uv run mutmut run && uv run mutmut export-cicd-stats`.
    - Injected mutations (such as operator inversions `<` vs `<=`, altered arithmetic signs, or deleted statements) must cause test failures.
    - Core financial validators (such as `app/pipeline/validator.py`) enforce a **100% mutation kill rate (zero surviving mutants)**.
-   - All PRs are gated by `uv run python scripts/check_mutation_score.py --min-score 55.0 --max-no-tests 0` in CI.
+   - **PR CI does not run mutmut** (avoids long/brittle PR blockers). Mutation is **required on `main` via nightly** (`.github/workflows/mutation-nightly.yml`: schedule + path-filtered main pushes + `workflow_dispatch`), using full allowlist (`--full-allowlist`) and `scripts/check_mutation_score.py --min-score 55.0 --max-no-tests 0`.
+   - Agents changing financial modules should still run mutation locally when practical: `uv run python scripts/run_mutation_on_diff.py --full-allowlist`.
    - Score is classic `killed/(killed+survived)`. `no_tests` fails separately. Only financial allowlisted modules are mutated; API/dashboard/MCP are out of scope.
 
 ---
@@ -115,12 +115,13 @@ Before a pull request can be merged, the Reviewer Agent verifies:
 - [ ] **Strict Contract Enforcement:** No silent error suppression (`except Exception: pass`), no best-effort coercion, explicit taxonomy exceptions raised.
 - [ ] **Observability & Data Privacy:** Structured logging is configured at boundaries; no PII or financial amounts leaked.
 - [ ] **TDD & Coverage Gate:** `uv run pytest --cov=app --cov-fail-under=90` passes with >90% coverage.
-- [ ] **Mutation Testing Gate:** allowlisted modules mutated (or explicit `skipped: true`); classic score >= 55%; `no_tests == 0`; zero survivors in `app/pipeline/validator.py`.
+- [ ] **Mutation Testing (nightly on main):** Not a PR merge blocker. Confirm financial changes remain killable; nightly full-allowlist gate on `main` must stay green (`classic >= 55%`, `no_tests == 0`, zero survivors in `app/pipeline/validator.py`).
 - [ ] **Code Hygiene:** `uv run ruff check .` and `uv run ruff format --check .` pass with zero warnings.
 - [ ] **QA Deliverables:** Executable QA script (`scripts/qa_*.py`) exists, runs successfully, and demonstrates both positive and negative cases.
 
 ### 3. Automated Review Gates
-- **GitHub Actions CI (`.github/workflows/ci.yml`):** Automatically executes linting, formatting check, and the 90% coverage test gate on all PRs and pushes to `main`.
+- **GitHub Actions CI (`.github/workflows/ci.yml`):** Automatically executes linting, formatting check, and the 90% coverage test gate on all PRs and pushes to `main` (no mutmut on PRs).
+- **Mutation Nightly (`.github/workflows/mutation-nightly.yml`):** Full allowlist mutation + score gate on `main` (cron, path-filtered pushes, manual dispatch).
 - **Agent Review Workflow (`.github/workflows/agent-review.yml`):** Automatically executes static invariant scans via `scripts/agent_review.py` and provides automated critique.
 
 ---
@@ -148,11 +149,13 @@ To combine developer velocity with strict cloud validation, ASSASSIN utilizes a 
 ## Troubleshooting & CI/CD Runbooks (For Future Agents)
 
 ### Mutation Testing (`mutmut`) Anomalies
+* **PR vs nightly:** Mutation is **not** a PR required check. Failures belong to `Mutation Nightly` on `main`. Do not re-add a blocking `mutation:` job to `ci.yml` without an explicit product decision.
 * **`no_tests` (🫥) is a hard fail:** Untested / dead code on allowlisted modules fails `--max-no-tests 0`. Delete dead helpers or add assertion-heavy tests. Do **not** "fix" this by mutating presentation code or faking stats.
 * **Wrong score denominator:** Never use `killed/total`. `total` includes `no_tests` and skips. Use classic `killed/(killed+survived)` via `scripts/check_mutation_score.py`.
 * **Module Import Crashes (Exit Code 4):** `mutmut` isolates files in `mutants/`. Always keep `source_paths = ["app"]` and inject `only_mutate` via `scripts/run_mutation_on_diff.py`. Never point `source_paths` at a single file.
-* **Out-of-scope diffs:** Changes only under `app/api/`, `app/mcp/`, `app/routers/`, `app/middleware/`, `app/core/` should skip mutation (`skipped: true`). Do not expand the allowlist to HTMX/dashboard just to satisfy the gate—cover those with unit/E2E tests.
-* **Slow Mutations / E2E:** E2E tests are ignored in `[tool.mutmut]` and renamed `.bak` during diff runs. Playwright belongs on the **coverage** job only, not the mutation job.
+* **Out-of-scope diffs:** Presentation/API/MCP/orchestrator are out of mutation scope. Nightly uses `--full-allowlist`; local diff mode still writes `skipped: true` when no allowlisted files changed.
+* **Slow Mutations / E2E:** E2E tests are ignored in `[tool.mutmut]` and renamed `.bak` during runs. Playwright belongs on the **coverage** job only, not the mutation workflow.
+* **Meta-tests under mutmut:** `tests/test_mutation_gates.py` must stay in mutmut `--ignore` (loads `scripts/` which is not copied into `mutants/`).
 * **Single config:** Do not reintroduce `setup.cfg` for mutmut; `[tool.mutmut]` in `pyproject.toml` is authoritative.
 
 ### Local Coding Harness (`pi-up.sh` / `llama-up.sh`)

@@ -79,6 +79,14 @@ class TestAllowlistSelection:
         assert "app/adapters/depository.py" in targets
         assert "app/pipeline/validator.py" in targets
 
+    def test_full_allowlist_includes_financial_surface(self, runner) -> None:
+        targets = runner.list_allowlisted_modules()
+        assert "app/pipeline/validator.py" in targets
+        assert any(t.startswith("app/adapters/") for t in targets)
+        assert all(runner.is_allowlisted(t) for t in targets)
+        assert not any(t.startswith("app/api/") for t in targets)
+        assert not any(t.startswith("app/mcp/") for t in targets)
+
 
 class TestClassicScore:
     def test_score_excludes_no_tests_from_denominator(self, checker) -> None:

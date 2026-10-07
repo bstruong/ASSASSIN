@@ -88,6 +88,19 @@ def test_ci_cd_workflow(root_dir: Path) -> None:
         "CI executes mutation score gate `scripts/check_mutation_score.py`",
         "scripts/check_mutation_score.py" in content,
     )
+    mutation_job = content.split("mutation:", 1)[1] if "mutation:" in content else ""
+    assert_condition(
+        "Mutation job does not install Playwright (E2E excluded from mutmut)",
+        "playwright install" not in mutation_job,
+    )
+    assert_condition(
+        "Mutation gate uses classic score + max-no-tests",
+        "--max-no-tests" in mutation_job,
+    )
+    assert_condition(
+        "Mutation cache key includes mutmut version fingerprint",
+        "mutmut_ver" in mutation_job and "config_hash" in mutation_job,
+    )
 
 
 def test_agent_review_workflow(root_dir: Path) -> None:

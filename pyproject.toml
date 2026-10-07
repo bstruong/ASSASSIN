@@ -41,5 +41,25 @@ filterwarnings = [
 ]
 
 [tool.mutmut]
+# Single source of truth for mutmut 3.x (do not maintain a parallel setup.cfg).
+# source_paths must stay ["app"] so the full package is copied into mutants/.
+# Diff-scoped runs inject only_mutate via scripts/run_mutation_on_diff.py.
 source_paths = ["app"]
+pytest_add_cli_args = [
+    "-x",
+    "-q",
+    "--ignore=tests/test_e2e_dashboard.py",
+    # Out-of-scope layers: mutating them is disabled; their tests can fail
+    # preflight when optional services (GPU MCP, etc.) are absent.
+    "--ignore=tests/routers",
+    "--ignore=tests/mcp",
+]
 pytest_add_cli_args_test_selection = ["tests"]
+# Presentation / orchestration glue is out of financial mutation scope.
+do_not_mutate = [
+    "app/api/*",
+    "app/mcp/*",
+    "app/routers/*",
+    "app/middleware/*",
+    "app/core/*",
+]

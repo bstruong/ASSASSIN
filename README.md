@@ -64,3 +64,13 @@ uv run ruff format .
 * **Harness failures propagate:** `mutmut run` / `export-cicd-stats` non-zero exits fail the job before score math.
 * **E2E exclusion:** Playwright E2E is ignored via `pytest_add_cli_args` and temporarily renamed by the diff script. The **mutation** CI job does **not** install Playwright; the coverage job still does.
 
+### Local Coding Harness (`pi-up.sh` / `llama-up.sh`)
+* **When it applies:** After any session that started local inference via `llama-up.sh` or the Tier-1 harness `pi-up.sh`.
+* **RAM exhaustion (`mlock`):** `llama-server` is often started with `--load-mode mlock`, which pins model weights in RAM (~20GB) and does not swap out. **`pi-up.sh` does not stop `llama-server` on exit.**
+* **End-of-session cleanup (required):**
+  ```bash
+  pgrep -a llama-server || true
+  killall llama-server
+  pgrep -a llama-server || echo "llama-server stopped"
+  ```
+* **Workspace vs container `/tmp`:** The harness runs in an isolated container. A file written to `/tmp/report.md` inside the container is **invisible on the host**. Always write investigation artifacts under the mounted repo, e.g. `/home/brian/Projects/assassin/tmp_report.md` (or another path under the workspace).

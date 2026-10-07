@@ -142,6 +142,8 @@ To combine developer velocity with strict cloud validation, ASSASSIN utilizes a 
 1. **No Dangling Background Processes:** Never run commands in the background using `&` unless absolutely necessary. If you must start a server or long-running process, you must kill it explicitly before ending your turn.
 2. **Explicit Thread Cleanup:** All test scripts and execution wrappers must have explicit cleanup logic (e.g., `sys.exit(0)` in Python or `os.Exit(0)` in Go) to forcefully terminate all lingering background threads.
 3. **Pipe Detachment:** If you absolutely must spawn a persistent background process, you must redirect its output to detach it from the execution pipe: `command > /dev/null 2>&1 &`.
+4. **Local inference cleanup:** If this session started `llama-server` (via `llama-up.sh` / `pi-up.sh`), end the turn with `killall llama-server` so `mlock`'d weights (~20GB) are released.
+5. **Host-visible artifacts only:** Never tell agents to write reports to `/tmp/...` inside the harness container; write under `/home/brian/Projects/assassin/` (or the active workspace root).
 
 ## Troubleshooting & CI/CD Runbooks (For Future Agents)
 
@@ -152,4 +154,14 @@ To combine developer velocity with strict cloud validation, ASSASSIN utilizes a 
 * **Out-of-scope diffs:** Changes only under `app/api/`, `app/mcp/`, `app/routers/`, `app/middleware/`, `app/core/` should skip mutation (`skipped: true`). Do not expand the allowlist to HTMX/dashboard just to satisfy the gate—cover those with unit/E2E tests.
 * **Slow Mutations / E2E:** E2E tests are ignored in `[tool.mutmut]` and renamed `.bak` during diff runs. Playwright belongs on the **coverage** job only, not the mutation job.
 * **Single config:** Do not reintroduce `setup.cfg` for mutmut; `[tool.mutmut]` in `pyproject.toml` is authoritative.
+
+### Local Coding Harness (`pi-up.sh` / `llama-up.sh`)
+* **Failure mode — RAM:** `llama-server --load-mode mlock` pins ~20GB. Leaving it running after an agent session starves the host. `pi-up.sh` does **not** tear it down.
+* **Fix:**
+  ```bash
+  pgrep -a llama-server || true
+  killall llama-server
+  pgrep -a llama-server || echo "llama-server stopped"
+  ```
+* **Failure mode — missing reports:** Paths under the container's `/tmp` are not on the host. Instruct agents to write findings into the mounted workspace (e.g. `/home/brian/Projects/assassin/investigation.md`), never `/tmp/report.md`.
 

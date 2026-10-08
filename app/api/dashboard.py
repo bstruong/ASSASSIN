@@ -20,6 +20,8 @@ from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from app.mcp.cloud_tools import CloudToolError, get_financial_summary
+
 logger = logging.getLogger("app.api.dashboard")
 
 # ---------------------------------------------------------------------------
@@ -126,6 +128,59 @@ async def get_status(request: Request) -> HTMLResponse:
     return HTMLResponse(content=env.get_template("status.html").render())
 
 
-# ---------------------------------------------------------------------------
-# Utility: PII and float validation helpers
-# ---------------------------------------------------------------------------
+def _frontier_audit_error(detail: str) -> HTMLResponse:
+    """Return the rejected frontier fragment with HTTP 400."""
+    return HTMLResponse(
+        content=env.get_template("frontier_audit_error.html").render(detail=detail),
+        status_code=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@dashboard_api.post(
+    "/frontier-audit",
+    response_class=HTMLResponse,
+    responses={
+        400: {"description": "Missing HTMX header or invalid group_by"},
+    },
+)
+async def frontier_audit(
+    request: Request,
+    group_by: str = Form(""),
+) -> HTMLResponse:
+    """Return a Tier-2 aggregate fragment for the frontier audit button.
+
+    The fragment contains integer-cent totals only. Row-level fields are not
+    rendered. Invalid grouping fails loudly.
+    """
+    hx_request = request.headers.get("HX-Request", "").lower()
+    if hx_request != "true":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This endpoint requires an HTMX request (HX-Request: true).",
+        )
+
+    stripped = group_by.strip() if group_by else ""
+    if not stripped:
+        return _frontier_audit_error("group_by must not be empty or whitespace.")
+
+    logger.info(
+        "Dashboard frontier audit requested",
+        extra={"group_by": stripped},
+    )
+
+    try:
+        summary = get_financial_summary(group_by=stripped)
+    except CloudToolError as exc:
+        logger.warning(
+            "Dashboard frontier audit rejected",
+            extra={"group_by": stripped, "error_type": type(exc).__name__},
+        )
+        return _frontier_audit_error(str(exc))
+
+    totals = summary["totals"]
+    return HTMLResponse(
+        content=env.get_template("frontier_audit_result.html").render(
+            group_by=summary["group_by_column"],
+            totals=totals,
+        )
+    )

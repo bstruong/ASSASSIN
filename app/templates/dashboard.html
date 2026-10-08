@@ -66,6 +66,19 @@
                     </div>
                     <button type="submit" id="submit-btn">Analyze</button>
                 </form>
+                <form id="frontier-audit-form"
+                      hx-post="/api/v1/dashboard/frontier-audit"
+                      hx-swap="innerHTML"
+                      hx-target="#frontier-result"
+                      style="margin-top:16px;">
+                    <div class="form-group">
+                        <label for="frontier-group-by">Aggregate group</label>
+                        <input type="text" id="frontier-group-by" name="group_by"
+                               value="transaction_category" required>
+                    </div>
+                    <button type="submit" id="frontier-verify-btn">Verify &amp; Analyze with Frontier Model</button>
+                </form>
+                <div id="frontier-result"></div>
             </div>
         </div>
         <!-- Pane 2: The Local Vault -->
@@ -82,5 +95,18 @@
             </div>
         </div>
     </div>
+    <script>
+        document.body.addEventListener("htmx:beforeSwap", function (event) {
+            var xhr = event.detail.xhr;
+            if (!xhr || xhr.status !== 400 || !xhr.responseURL) {
+                return;
+            }
+            if (xhr.responseURL.indexOf("/api/v1/dashboard/frontier-audit") === -1) {
+                return;
+            }
+            event.detail.shouldSwap = true;
+            event.detail.isError = false;
+        });
+    </script>
 </body>
 </html>

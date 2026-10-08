@@ -1,0 +1,32 @@
+<div class="analysis-result" id="frontier-audit-result">
+    <h3>Frontier aggregate audit</h3>
+    <p><strong>Group:</strong> {{ group_by }}</p>
+    <p><strong>Status:</strong> <span class="status-badge status-ok">Completed</span></p>
+    <p>Totals are integer cents.</p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Metric</th>
+                <th class="amount">Cents</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Transactions</td>
+                <td class="amount">{{ totals.total_transactions }}</td>
+            </tr>
+            <tr>
+                <td>Deposits</td>
+                <td class="amount">{{ totals.total_deposits_cents }}</td>
+            </tr>
+            <tr>
+                <td>Purchases</td>
+                <td class="amount">{{ totals.total_purchases_cents }}</td>
+            </tr>
+            <tr>
+                <td>Withdrawals</td>
+                <td class="amount">{{ totals.total_withdrawals_cents }}</td>
+            </tr>
+        </tbody>
+    </table>
+</div>

@@ -211,3 +211,87 @@ class TestHTMXXBehavior:
         response = client.get("/dashboard")
         html = response.text
         assert "hx-target" in html
+
+
+class TestFrontierAuditButton:
+    """Dashboard posts sanitized aggregates to the frontier audit path."""
+
+    def test_dashboard_has_frontier_verify_control(self, client: TestClient) -> None:
+        response = client.get("/dashboard")
+        html = response.text
+        assert 'id="frontier-verify-btn"' in html
+        assert 'hx-post="/api/v1/dashboard/frontier-audit"' in html
+        assert "Verify &amp; Analyze with Frontier Model" in html or (
+            "Verify & Analyze with Frontier Model" in html
+        )
+        assert "htmx:beforeSwap" in html
+        assert 'xhr.responseURL.indexOf("/api/v1/dashboard/frontier-audit")' in html
+        assert "event.detail.shouldSwap = true" in html
+
+    def test_frontier_audit_renders_integer_cents(
+        self, client: TestClient, monkeypatch
+    ):
+        from app.api import dashboard as dashboard_mod
+
+        def fake_summary(group_by: str, database_url: str | None = None):
+            assert group_by == "transaction_category"
+            return {
+                "group_by_column": "transaction_category",
+                "totals": {
+                    "total_transactions": 2,
+                    "total_deposits_cents": 150000,
+                    "total_purchases_cents": 0,
+                    "total_withdrawals_cents": 4000,
+                },
+                "per_group": [
+                    {
+                        "transaction_category": "deposit",
+                        "txn_count": 2,
+                        "deposits_cents": 150000,
+                        "purchases_cents": 0,
+                        "withdrawals_cents": 0,
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(dashboard_mod, "get_financial_summary", fake_summary)
+        response = client.post(
+            "/api/v1/dashboard/frontier-audit",
+            data={"group_by": "transaction_category"},
+            headers={"HX-Request": "true"},
+        )
+        assert response.status_code == 200
+        body = response.text
+        assert "150000" in body
+        assert "4000" in body
+        assert "description" not in body.lower()
+        assert "account_mask" not in body
+        assert "page_text" not in body
+        assert "$" not in body
+
+    def test_frontier_audit_rejects_row_level_group(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/v1/dashboard/frontier-audit",
+            data={"group_by": "description"},
+            headers={"HX-Request": "true"},
+        )
+        assert response.status_code == 400
+        assert "description" in response.text
+        assert "Invalid group_by" in response.text
+
+    def test_frontier_audit_rejects_blank_group(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/v1/dashboard/frontier-audit",
+            data={"group_by": "   "},
+            headers={"HX-Request": "true"},
+        )
+        assert response.status_code == 400
+        assert "Rejected" in response.text
+        assert "group_by must not be empty" in response.text
+
+    def test_frontier_audit_requires_htmx(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/v1/dashboard/frontier-audit",
+            data={"group_by": "transaction_category"},
+        )
+        assert response.status_code == 400

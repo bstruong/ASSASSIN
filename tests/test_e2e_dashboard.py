@@ -51,7 +51,7 @@ def test_htmx_dom_swap(page: Page, live_server: str):
     page.fill("#question", "Show me my spending")
 
     # Click analyze button
-    analyze_btn = page.locator("button", has_text="Analyze")
+    analyze_btn = page.locator("#submit-btn")
     analyze_btn.click()
 
     # Wait for the DOM swap - look for analysis result

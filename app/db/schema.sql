@@ -145,4 +145,16 @@ CREATE INDEX IF NOT EXISTS idx_raw_tokens_page ON raw_tokens (raw_page_id);
 CREATE INDEX IF NOT EXISTS idx_statements_account ON statements (account_id);
 CREATE INDEX IF NOT EXISTS idx_statements_run ON statements (run_id);
 CREATE INDEX IF NOT EXISTS idx_statements_payload ON statements (raw_payload_id);
+CREATE TABLE IF NOT EXISTS holdings (
+  holding_id           UUID PRIMARY KEY,
+  statement_id         UUID NOT NULL REFERENCES statements (statement_id),
+  as_of_date           DATE NOT NULL,
+  symbol               TEXT NOT NULL CHECK (char_length(symbol) >= 1),
+  description          TEXT NOT NULL CHECK (char_length(description) >= 1),
+  quantity_nanos       BIGINT NOT NULL CHECK (quantity_nanos <> 0),
+  market_value_cents   BIGINT NOT NULL,
+  cost_basis_cents     BIGINT
+);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_statement ON transactions (statement_id);
+CREATE INDEX IF NOT EXISTS idx_holdings_statement ON holdings (statement_id);

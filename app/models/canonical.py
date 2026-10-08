@@ -134,6 +134,27 @@ class BrokerageSummary(BaseModel):
         return self
 
 
+class Holding(BaseModel):
+    """One brokerage position. Share count is integer nanos, never a float."""
+
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    holding_id: UUID = Field(default_factory=uuid4)
+    statement_id: UUID
+    as_of_date: datetime.date
+    symbol: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    quantity_nanos: int
+    market_value_cents: int
+    cost_basis_cents: int | None = None
+
+    @model_validator(mode="after")
+    def quantity_nonzero(self) -> Holding:
+        if self.quantity_nanos == 0:
+            raise ValueError("quantity_nanos must be non-zero")
+        return self
+
+
 class CanonicalTransaction(BaseModel):
     """Canonical transaction row with signed amount_cents delta to domain primary balance."""
 

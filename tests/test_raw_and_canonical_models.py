@@ -14,6 +14,7 @@ from app.models.canonical import (
     CanonicalStatement,
     CanonicalTransaction,
     DepositorySummary,
+    Holding,
 )
 from app.models.enums import (
     AccountDomain,
@@ -266,6 +267,30 @@ class TestSidecarSummaries:
                 opening_portfolio_cents=50000,
                 closing_portfolio_cents=None,
             )
+
+
+class TestHoldingModel:
+    def test_zero_quantity_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="quantity_nanos must be non-zero"):
+            Holding(
+                statement_id=uuid4(),
+                as_of_date=datetime.date(2025, 8, 31),
+                symbol="SYN",
+                description="SYNTHETIC Equity",
+                quantity_nanos=0,
+                market_value_cents=100,
+            )
+
+    def test_short_market_value_allowed(self) -> None:
+        holding = Holding(
+            statement_id=uuid4(),
+            as_of_date=datetime.date(2025, 8, 31),
+            symbol="SHRT",
+            description="SYNTHETIC Short",
+            quantity_nanos=-1_000_000_000,
+            market_value_cents=-5000,
+        )
+        assert holding.market_value_cents == -5000
 
 
 class TestTableSchemaModel:

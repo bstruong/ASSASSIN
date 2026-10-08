@@ -14,6 +14,7 @@ from app.models.canonical import (
     CanonicalTransaction,
     CreditCardSummary,
     DepositorySummary,
+    Holding,
     RawStatement,
 )
 from app.models.enums import AccountDomain, AccountType
@@ -225,10 +226,24 @@ class InvestmentStatementAdapter(StatementAdapter, abc.ABC):
     ) -> list[CanonicalTransaction]:
         """Extract investment cash/trade transactions."""
 
+    @abc.abstractmethod
+    def parse_holdings(
+        self,
+        extraction: RawExtraction,
+        statement_id,
+        period_start: datetime.date,
+        period_end: datetime.date,
+    ) -> list[Holding]:
+        """Extract positions. Empty only when the statement prints no holdings section."""
+
     def parse_canonical(
         self, extraction: RawExtraction
     ) -> tuple[
-        Account, CanonicalStatement, BrokerageSummary, list[CanonicalTransaction]
+        Account,
+        CanonicalStatement,
+        BrokerageSummary,
+        list[CanonicalTransaction],
+        list[Holding],
     ]:
         """Orchestrate brokerage parsing and reconciliation."""
         from app.extraction.core import validate_extraction_against_schemas
@@ -268,7 +283,14 @@ class InvestmentStatementAdapter(StatementAdapter, abc.ABC):
         )
         validate_brokerage_reconciliation(statement, summary, transactions)
 
-        return account, statement, summary, transactions
+        holdings = self.parse_holdings(
+            extraction,
+            statement.statement_id,
+            statement.statement_start_date,
+            statement.statement_end_date,
+        )
+
+        return account, statement, summary, transactions, holdings
 
 
 class CombinedStatementAdapter(StatementAdapter, abc.ABC):

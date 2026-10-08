@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 from app.adapters.schwab import SchwabAdapter
+from app.models.canonical import Holding
 from app.models.enums import (
     AccountDomain,
     AccountType,
@@ -27,6 +30,7 @@ from app.models.raw import (
     RawPage,
     RawPayload,
 )
+from app.pipeline.validator import validate_holdings_valuation
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -88,7 +92,9 @@ class TestInvestmentAdapter:
     def test_brokerage_cash_happy(self) -> None:
         """Universal cash identity reconciliation on happy path."""
         extraction = load_fixture_as_raw_extraction("brokerage_cash_happy")
-        account, statement, summary, txns = self.adapter.parse_canonical(extraction)
+        account, statement, summary, txns, holdings = self.adapter.parse_canonical(
+            extraction
+        )
 
         assert account.account_domain == AccountDomain.CUSTODIAL_BROKERAGE
         assert account.account_type == AccountType.BROKERAGE_CASH
@@ -106,6 +112,7 @@ class TestInvestmentAdapter:
         assert summary.closing_portfolio_cents is None
 
         assert len(txns) == 5
+        assert holdings == []
         assert txns[0].amount_cents == 200_000
         assert txns[0].transaction_category == TransactionCategory.TRANSFER_IN
         assert txns[1].amount_cents == 200_000
@@ -123,7 +130,9 @@ class TestInvestmentAdapter:
     def test_brokerage_portfolio_happy(self) -> None:
         """Cash identity plus full portfolio summary bridge reconciliation."""
         extraction = load_fixture_as_raw_extraction("brokerage_portfolio_happy")
-        account, statement, summary, _ = self.adapter.parse_canonical(extraction)
+        account, statement, summary, _, _holdings = self.adapter.parse_canonical(
+            extraction
+        )
 
         assert account.account_domain == AccountDomain.CUSTODIAL_BROKERAGE
         assert statement.opening_balance_cents == 1_000_000
@@ -246,7 +255,7 @@ class TestInvestmentAdapter:
             "END OF STATEMENT"
         )
         extraction = create_raw_extraction_from_text(text)
-        account, stmt, _, _ = self.adapter.parse_canonical(extraction)
+        account, stmt, _, _, _holdings = self.adapter.parse_canonical(extraction)
         assert account.account_type == AccountType.BROKERAGE_MARGIN
         assert stmt.closing_balance_cents == 150000
 
@@ -357,7 +366,7 @@ class TestInvestmentAdapter:
             "END OF STATEMENT"
         )
         extraction = create_raw_extraction_from_text(text)
-        _, stmt, _, txns = self.adapter.parse_canonical(extraction)
+        _, stmt, _, txns, _holdings = self.adapter.parse_canonical(extraction)
 
         assert stmt.closing_balance_cents == 120_000
         assert len(txns) == 2
@@ -402,4 +411,103 @@ class TestInvestmentAdapter:
         with pytest.raises(
             TokenError, match=r"cents component must be exactly 2 digits"
         ):
+            self.adapter.parse_canonical(extraction)
+
+
+_POSITIONS = (
+    "POSITIONS\n"
+    "Symbol    Description    Quantity    Market Value\n"
+    "SYN    SYNTHETIC Equity    10    $1,000.00\n"
+    "BND    SYNTHETIC Bond    2.5    $250.50\n"
+    "Holdings Total: $1,250.50\n"
+)
+
+
+def _cash_with_positions(positions_block: str) -> str:
+    return (
+        "CHARLES SCHWAB\n"
+        "Individual Brokerage Account\n"
+        "Account Number: ****7842\n"
+        "Statement Period: 2025-08-01 to 2025-08-31\n"
+        "\n"
+        "ACCOUNT SUMMARY\n"
+        "Starting Cash Balance: $10,000.00\n"
+        "Ending Cash Balance: $13,904.25\n"
+        "\n"
+        "TRANSACTION ACTIVITY\n"
+        "Date    Description    Amount\n"
+        "2025-08-05    Electronic Deposit Funds Received    +$2,000.00\n"
+        "2025-08-10    Wire Transfer In    +$2,000.00\n"
+        "2025-08-15    Funds Withdrawal Transfer Out    -$100.00\n"
+        "2025-08-20    Qualifying Dividend Payment    +$100.00\n"
+        "2025-08-25    Account Service Fee Charged    -$95.75\n"
+        f"{positions_block}"
+        "END OF STATEMENT"
+    )
+
+
+class TestSchwabHoldings:
+    def setup_method(self) -> None:
+        self.adapter = SchwabAdapter()
+
+    def test_positions_reconcile_to_printed_total(self) -> None:
+        extraction = create_raw_extraction_from_text(_cash_with_positions(_POSITIONS))
+        _account, _stmt, _summary, txns, holdings = self.adapter.parse_canonical(
+            extraction
+        )
+        assert len(txns) == 5
+        assert len(holdings) == 2
+        assert holdings[0].symbol == "SYN"
+        assert holdings[0].description == "SYNTHETIC Equity"
+        assert holdings[0].quantity_nanos == 10_000_000_000
+        assert holdings[0].market_value_cents == 100_000
+        assert holdings[1].symbol == "BND"
+        assert holdings[1].quantity_nanos == 2_500_000_000
+        assert holdings[1].market_value_cents == 25_050
+        assert holdings[0].as_of_date.isoformat() == "2025-08-31"
+
+    def test_holdings_total_mismatch_fails(self) -> None:
+        bad = _POSITIONS.replace(
+            "Holdings Total: $1,250.50", "Holdings Total: $1,250.51"
+        )
+        extraction = create_raw_extraction_from_text(_cash_with_positions(bad))
+        with pytest.raises(InvariantError, match=r"Holdings valuation mismatch"):
+            self.adapter.parse_canonical(extraction)
+
+    def test_missing_holdings_total_fails(self) -> None:
+        bad = _POSITIONS.replace("Holdings Total: $1,250.50\n", "")
+        extraction = create_raw_extraction_from_text(_cash_with_positions(bad))
+        with pytest.raises(MissingSectionError, match=r"Holdings Total is required"):
+            self.adapter.parse_canonical(extraction)
+
+    def test_positions_header_drift_fails(self) -> None:
+        bad = _POSITIONS.replace(
+            "Symbol    Description    Quantity    Market Value",
+            "Symbol    Description    Quantity    Price    Market Value",
+        )
+        extraction = create_raw_extraction_from_text(_cash_with_positions(bad))
+        with pytest.raises(SchemaDriftError, match=r"Header drift"):
+            self.adapter.parse_canonical(extraction)
+
+    def test_as_of_date_outside_period_fails(self) -> None:
+        holding = Holding(
+            statement_id=uuid4(),
+            as_of_date=datetime.date(2024, 1, 1),
+            symbol="SYN",
+            description="SYNTHETIC Equity",
+            quantity_nanos=1_000_000_000,
+            market_value_cents=100,
+        )
+        with pytest.raises(InvariantError, match=r"outside the statement period"):
+            validate_holdings_valuation(
+                [holding],
+                100,
+                datetime.date(2025, 8, 1),
+                datetime.date(2025, 8, 31),
+            )
+
+    def test_quantity_too_precise_fails(self) -> None:
+        bad = _POSITIONS.replace("10    $1,000.00", "10.1234567891    $1,000.00")
+        extraction = create_raw_extraction_from_text(_cash_with_positions(bad))
+        with pytest.raises(TokenError, match=r"more than 9 decimal places"):
             self.adapter.parse_canonical(extraction)

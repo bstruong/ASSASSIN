@@ -210,12 +210,12 @@ class SchwabAdapter(InvestmentStatementAdapter):
         )
         assert opening_cash is not None and closing_cash is not None
 
-        # Check for portfolio summary bridge
+        # A bridge exists only when a summary line announces it. Wording inside
+        # cash activity must not invent portfolio cents.
         has_portfolio_section = bool(
             re.search(
-                r"PORTFOLIO SUMMARY|(?:Beginning|Starting)\s+Portfolio\s*(?:Value)?",
+                r"(?im)^[ \t]*(?:PORTFOLIO SUMMARY|(?:Beginning|Starting)\s+Portfolio\b)",
                 all_text,
-                re.IGNORECASE,
             )
         )
 
@@ -229,19 +229,19 @@ class SchwabAdapter(InvestmentStatementAdapter):
 
         if has_portfolio_section:
             opening_portfolio = extract_cents(
-                r"(?:Beginning|Starting)\s+Portfolio\s*(?:Value)?[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                r"(?m)^[ \t]*(?:Beginning|Starting)\s+Portfolio\s*(?:Value)?[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
                 required=True,
             )
             closing_portfolio = extract_cents(
-                r"(?:Ending|Closing)\s+Portfolio\s*(?:Value)?[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                r"(?m)^[ \t]*(?:Ending|Closing)\s+Portfolio\s*(?:Value)?[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
                 required=True,
             )
             transfers_in = extract_cents(
-                r"Transfers\s+In[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                r"(?m)^[ \t]*Transfers\s+In[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
                 required=True,
             )
             transfers_out = extract_cents(
-                r"Transfers\s+Out[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                r"(?m)^[ \t]*Transfers\s+Out[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
                 required=True,
             )
             # Magnitudes only. A printed minus is rejected before BrokerageSummary.
@@ -252,15 +252,15 @@ class SchwabAdapter(InvestmentStatementAdapter):
                 raise InvariantError("transfers_out_cents must be >= 0")
 
             income_dividends = extract_cents(
-                r"(?:Income\s*(?:and|&)?\s*Dividends|Dividends\s*(?:and|&)?\s*Income)[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                r"(?m)^[ \t]*(?:Income\s*(?:and|&)?\s*Dividends|Dividends\s*(?:and|&)?\s*Income)[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
                 required=True,
             )
             realized_gains = extract_cents(
-                r"\bRealized\s+(?:Gain(?:s)?(?:/Loss(?:es)?)?|Loss(?:es)?|Gains/Losses)[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                r"(?m)^[ \t]*Realized\s+(?:Gain(?:s)?(?:/Loss(?:es)?)?|Loss(?:es)?|Gains/Losses)[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
                 required=True,
             )
             unrealized_gains = extract_cents(
-                r"\bUnrealized\s+(?:Gain(?:s)?(?:/Loss(?:es)?)?|Loss(?:es)?|Gains/Losses)[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+                r"(?m)^[ \t]*Unrealized\s+(?:Gain(?:s)?(?:/Loss(?:es)?)?|Loss(?:es)?|Gains/Losses)[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
                 required=True,
             )
 

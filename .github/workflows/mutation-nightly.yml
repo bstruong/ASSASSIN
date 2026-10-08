@@ -62,8 +62,8 @@ jobs:
         run: uv sync
       - name: Initialize Test Database Schema
         env:
-          PGPASSWORD: assassin
-        run: psql -h localhost -p 54329 -U postgres -d assassin_test -f app/db/schema.sql
+          DATABASE_URL: postgresql://postgres:assassin@localhost:54329/assassin_test
+        run: uv run python -c "from app.db.connection import init_db; init_db()"
       - name: Resolve mutmut cache fingerprint
         id: mutmut_meta
         run: |

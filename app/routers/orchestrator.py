@@ -1,8 +1,8 @@
 """FastAPI router for the Frontier-to-Local Orchestrator.
 
-Tier-1 row-level SQL egress is quarantined (POST /execute_sql → HTTP 501)
-until an aggregate-only handoff is available. Schema introspection remains
-available for planning. This router is not mounted on the production app.
+Tier-1 row-level SQL egress remains quarantined (POST /execute_sql → HTTP 501).
+Aggregate-only frontier handoff lives on ``POST /chat/frontier/audit`` and uses
+Tier-2 cloud tools only. Schema introspection remains available for planning.
 
 Endpoints:
 - POST /v1/orchestrator/execute_sql — Quarantined (501); no Tier-1 row sets.
@@ -125,9 +125,9 @@ async def execute_sql_plan(
 ) -> SqlExecutionErrorResponse:
     """Quarantined: refuse Tier-1 row-level SQL egress to frontier clients.
 
-    Production frontier handoff must use cloud aggregate tools only. This
-    endpoint remains mounted for contract discovery but never returns
-    Tier-1 ``execute_raw_sql`` result sets.
+    Production frontier handoff must use ``POST /chat/frontier/audit`` (Tier-2
+    cloud aggregates only). This endpoint remains mounted for contract
+    discovery but never returns Tier-1 ``execute_raw_sql`` result sets.
 
     Args:
         payload: SQL execution request from the frontier model (ignored).
@@ -138,8 +138,8 @@ async def execute_sql_plan(
     execution_id = uuid.uuid4().hex
     plan_id = payload.plan_id
     detail = (
-        "Frontier Tier-1 SQL egress is quarantined until aggregate-only "
-        "handoff is available. Use cloud aggregate tools instead."
+        "Frontier Tier-1 SQL egress is quarantined. Use POST "
+        "/chat/frontier/audit for aggregate-only Tier-2 handoff."
     )
 
     logger.warning(

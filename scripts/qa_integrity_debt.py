@@ -33,7 +33,6 @@ from app.models.enums import (
 )
 from app.models.exceptions import TokenError
 from app.models.raw import ExtractionRun, RawExtraction, RawPage, RawPayload
-from app.routers.orchestrator import router as orchestrator_router
 
 FIXTURES = PROJECT_ROOT / "tests" / "fixtures"
 
@@ -177,27 +176,40 @@ def main() -> int:
     except CloudToolError as exc:
         report.record("Cloud non-aggregate SELECT fails loud", True, str(exc)[:80])
 
-    # 6. Frontier quarantine — no Tier-1 row sets
-    print("\n-- Frontier quarantine --")
+    # 6. Frontier quarantine + aggregate-only handoff
+    print("\n-- Frontier quarantine + aggregate handoff --")
     app = create_app()
-    app.include_router(orchestrator_router)
     client = TestClient(app)
     resp = client.post("/v1/orchestrator/execute_sql", json={"sql": "SELECT 1;"})
     detail = resp.json().get("detail", {})
     report.record(
-        "Frontier path does not return Tier-1 row sets",
+        "Tier-1 execute_sql remains quarantined (no row sets)",
         resp.status_code == 501
         and detail.get("error_code") == "FRONTIER_QUARANTINED"
         and "results" not in detail,
         f"status={resp.status_code} code={detail.get('error_code')}",
     )
 
-    prod_paths = {getattr(r, "path", None) for r in create_app().routes}
+    prod_paths = set(create_app().openapi()["paths"])
     report.record(
-        "Production app omits orchestrator routes",
-        not any(
-            isinstance(p, str) and p.startswith("/v1/orchestrator") for p in prod_paths
-        ),
+        "Production app mounts aggregate-only /chat/frontier/audit",
+        "/chat/frontier/audit" in prod_paths,
+    )
+    report.record(
+        "Production app mounts quarantined /v1/orchestrator/execute_sql",
+        "/v1/orchestrator/execute_sql" in prod_paths,
+    )
+
+    resp = client.post(
+        "/chat/frontier/audit",
+        json={"aggregate_sql": "SELECT description FROM transactions;"},
+    )
+    detail = resp.json().get("detail", {})
+    report.record(
+        "Frontier audit rejects row-level description SQL",
+        resp.status_code == 400
+        and detail.get("error_code") == "CLOUD_TOOL_VALIDATION_ERROR",
+        f"status={resp.status_code} code={detail.get('error_code')}",
     )
 
     return 0 if report.summary() else 1

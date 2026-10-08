@@ -23,6 +23,9 @@ from app.api.dashboard import router as dashboard_router
 from app.api.routes import router
 from app.core.telemetry import configure_telemetry
 from app.db.connection import init_db
+from app.middleware.sanitization import PiiSanitizationMiddleware
+from app.routers.frontier import router as frontier_router
+from app.routers.orchestrator import router as orchestrator_router
 
 
 class TraceContextMiddleware(BaseHTTPMiddleware):
@@ -67,10 +70,14 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
+    # Outermost: scrub PII from JSON I/O; frontier paths also drop row-PII keys.
+    app.add_middleware(PiiSanitizationMiddleware)
 
     app.include_router(router)
     app.include_router(dashboard_router)
     app.include_router(dashboard_api)
+    app.include_router(frontier_router)
+    app.include_router(orchestrator_router)
 
     static_dir = Path(__file__).resolve().parent.parent / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")

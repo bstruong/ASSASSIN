@@ -23,7 +23,7 @@ from app.models.enums import (
     RunStatus,
     TransactionCategory,
 )
-from app.models.exceptions import InvariantError, PersistenceError
+from app.models.exceptions import PersistenceError
 from app.models.raw import ExtractionRun, RawExtraction, RawPage, RawPayload, RawToken
 
 logger = logging.getLogger(__name__)
@@ -359,10 +359,6 @@ def persist_canonical_statement(
                 ),
             )
         elif isinstance(summary, CreditCardSummary):
-            if summary.minimum_payment_due_cents is None:
-                raise InvariantError(
-                    "minimum_payment_due_cents is required; refuse silent zero coercion"
-                )
             cur.execute(
                 """
                 INSERT INTO statement_credit_summaries (

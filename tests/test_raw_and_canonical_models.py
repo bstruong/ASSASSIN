@@ -13,6 +13,7 @@ from app.models.canonical import (
     BrokerageSummary,
     CanonicalStatement,
     CanonicalTransaction,
+    CreditCardSummary,
     DepositorySummary,
 )
 from app.models.enums import (
@@ -256,6 +257,65 @@ class TestSidecarSummaries:
                 interest_paid_cents=0,
                 fees_cents=0,
             )
+
+    def test_credit_card_summary_requires_minimum_payment(self) -> None:
+        with pytest.raises(ValidationError):
+            CreditCardSummary(
+                statement_id=uuid4(),
+                previous_balance_cents=50000,
+                payments_credits_cents=0,
+                purchases_cents=0,
+                cash_advances_cents=0,
+                balance_transfers_cents=0,
+                fees_charged_cents=0,
+                interest_charged_cents=0,
+                new_balance_cents=50000,
+            )
+
+    def test_credit_card_summary_rejects_null_minimum_payment(self) -> None:
+        with pytest.raises(ValidationError):
+            CreditCardSummary(
+                statement_id=uuid4(),
+                previous_balance_cents=50000,
+                payments_credits_cents=0,
+                purchases_cents=0,
+                cash_advances_cents=0,
+                balance_transfers_cents=0,
+                fees_charged_cents=0,
+                interest_charged_cents=0,
+                new_balance_cents=50000,
+                minimum_payment_due_cents=None,
+            )
+
+    def test_credit_card_summary_rejects_negative_minimum_payment(self) -> None:
+        with pytest.raises(ValidationError):
+            CreditCardSummary(
+                statement_id=uuid4(),
+                previous_balance_cents=50000,
+                payments_credits_cents=0,
+                purchases_cents=0,
+                cash_advances_cents=0,
+                balance_transfers_cents=0,
+                fees_charged_cents=0,
+                interest_charged_cents=0,
+                new_balance_cents=50000,
+                minimum_payment_due_cents=-100,
+            )
+
+    def test_credit_card_summary_accepts_zero_minimum_payment(self) -> None:
+        summary = CreditCardSummary(
+            statement_id=uuid4(),
+            previous_balance_cents=50000,
+            payments_credits_cents=0,
+            purchases_cents=0,
+            cash_advances_cents=0,
+            balance_transfers_cents=0,
+            fees_charged_cents=0,
+            interest_charged_cents=0,
+            new_balance_cents=50000,
+            minimum_payment_due_cents=0,
+        )
+        assert summary.minimum_payment_due_cents == 0
 
     def test_brokerage_summary_partial_portfolio_raises(self) -> None:
         with pytest.raises(ValidationError):

@@ -15,6 +15,7 @@ from app.models.canonical import (
     CanonicalTransaction,
     CreditCardSummary,
     DepositorySummary,
+    Holding,
 )
 from app.models.enums import (
     AccountDomain,
@@ -249,8 +250,9 @@ def persist_canonical_statement(
     statement: CanonicalStatement,
     summary: DepositorySummary | CreditCardSummary | BrokerageSummary,
     transactions: Sequence[CanonicalTransaction],
+    holdings: Sequence[Holding] = (),
 ) -> None:
-    """Atomically persist statement, domain sidecar, and transactions."""
+    """Atomically persist statement, domain sidecar, transactions, and holdings."""
     # 1. Validate domain matching between account and sidecar
     if account.account_domain == AccountDomain.DEPOSITORY:
         if not isinstance(summary, DepositorySummary):
@@ -285,6 +287,11 @@ def persist_canonical_statement(
             )
     else:
         raise PersistenceError(f"Unsupported account domain: {account.account_domain}")
+
+    if holdings and account.account_domain != AccountDomain.CUSTODIAL_BROKERAGE:
+        raise PersistenceError(
+            "Holdings are only valid for custodial brokerage statements."
+        )
 
     # 2. Validate denormalized raw_payload_id consistency
     with conn.cursor() as cur:
@@ -425,6 +432,27 @@ def persist_canonical_statement(
                     txn.description,
                     txn.transaction_category.value,
                     txn.balance_after_cents,
+                ),
+            )
+
+        holding_query = """
+        INSERT INTO holdings (
+            holding_id, statement_id, as_of_date, symbol, description,
+            quantity_nanos, market_value_cents, cost_basis_cents
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+        """
+        for holding in holdings:
+            cur.execute(
+                holding_query,
+                (
+                    str(holding.holding_id),
+                    str(holding.statement_id),
+                    holding.as_of_date,
+                    holding.symbol,
+                    holding.description,
+                    holding.quantity_nanos,
+                    holding.market_value_cents,
+                    holding.cost_basis_cents,
                 ),
             )
 
@@ -724,3 +752,32 @@ def get_canonical_statement(
             for t in txn_rows
         ]
         return statement, summary, txns
+
+
+def get_statement_holdings(
+    conn: psycopg.Connection, statement_id: UUID
+) -> list[Holding]:
+    """Return persisted positions for a statement, ordered by symbol."""
+    query = """
+    SELECT holding_id, statement_id, as_of_date, symbol, description,
+           quantity_nanos, market_value_cents, cost_basis_cents
+    FROM holdings
+    WHERE statement_id = %s
+    ORDER BY symbol ASC;
+    """
+    with conn.cursor() as cur:
+        cur.execute(query, (str(statement_id),))
+        rows = cur.fetchall()
+    return [
+        Holding(
+            holding_id=UUID(str(row[0])),
+            statement_id=UUID(str(row[1])),
+            as_of_date=row[2],
+            symbol=str(row[3]),
+            description=str(row[4]),
+            quantity_nanos=int(row[5]),
+            market_value_cents=int(row[6]),
+            cost_basis_cents=int(row[7]) if row[7] is not None else None,
+        )
+        for row in rows
+    ]

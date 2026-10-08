@@ -7,6 +7,7 @@ Extracts raw pages, raw integer millipoint tokens, and performs closed-schema va
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from uuid import uuid4
@@ -212,6 +213,53 @@ def validate_table_against_schema(
                 f"Ragged row in table {schema.name!r} at index {row_idx}: "
                 f"expected {expected_len} columns, got {len(row)}"
             )
+
+
+_NANOS_PER_SHARE = 1_000_000_000
+
+
+def parse_quantity_to_nanos(quantity_str: str) -> int:
+    """Parse a printed share quantity into integer nanos (10^-9 shares).
+
+    No floating-point conversion. At most nine digits after the decimal point.
+    Zero quantities fail. A leading minus or parentheses marks a short.
+
+    Raises:
+        TokenError: If the quantity is blank, non-numeric, too precise, or zero.
+    """
+    if not isinstance(quantity_str, str) or not quantity_str.strip():
+        raise TokenError(
+            f"Quantity string must be a non-empty string, got {quantity_str!r}"
+        )
+
+    cleaned = quantity_str.strip()
+    is_negative = False
+    if cleaned.startswith("(") and cleaned.endswith(")"):
+        is_negative = True
+        cleaned = cleaned[1:-1].strip()
+    if cleaned.startswith("-"):
+        is_negative = True
+        cleaned = cleaned[1:].strip()
+    elif cleaned.startswith("+"):
+        cleaned = cleaned[1:].strip()
+
+    if not re.fullmatch(r"\d+(\.\d+)?", cleaned):
+        raise TokenError(f"Invalid share quantity {quantity_str!r}.")
+
+    if "." in cleaned:
+        whole, frac = cleaned.split(".")
+        if len(frac) > 9:
+            raise TokenError(
+                f"Share quantity {quantity_str!r} has more than 9 decimal places."
+            )
+        frac = frac.ljust(9, "0")
+        nanos = int(whole) * _NANOS_PER_SHARE + int(frac)
+    else:
+        nanos = int(cleaned) * _NANOS_PER_SHARE
+
+    if nanos == 0:
+        raise TokenError("Share quantity must be non-zero.")
+    return -nanos if is_negative else nanos
 
 
 def parse_currency_to_cents(amount_str: str, allow_zero: bool = False) -> int:

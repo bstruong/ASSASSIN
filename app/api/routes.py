@@ -188,8 +188,12 @@ async def upload_statement(
 
             # 5. Persist canonical statements and sidecars
             with get_db_connection() as conn:
-                for acc, stmt, summary, txns in bundles:
-                    persist_canonical_statement(conn, acc, stmt, summary, txns)
+                for bundle in bundles:
+                    acc, stmt, summary, txns = bundle[:4]
+                    holdings = bundle[4] if len(bundle) > 4 else ()
+                    persist_canonical_statement(
+                        conn, acc, stmt, summary, txns, holdings=holdings
+                    )
                 update_run_status(conn, run_id, RunStatus.CANONICAL_PERSISTED)
 
             logger.info(
@@ -210,10 +214,10 @@ async def upload_statement(
                     account_type=acc.account_type,
                     currency=acc.currency,
                 )
-                for acc, _, _, _ in bundles
+                for acc, *_rest in bundles
             ]
 
-            total_txns = sum(len(txns) for _, _, _, txns in bundles)
+            total_txns = sum(len(bundle[3]) for bundle in bundles)
             return IngestSuccessResponse(
                 status=RunStatus.CANONICAL_PERSISTED,
                 run_id=run_id,

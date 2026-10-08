@@ -16,6 +16,7 @@ from app.models.canonical import (
     CanonicalTransaction,
     CreditCardSummary,
     DepositorySummary,
+    Holding,
     RawStatement,
     TransactionType,
 )
@@ -357,6 +358,31 @@ def validate_brokerage_reconciliation(
                 f"Portfolio bridge mismatch: computed closing {computed_closing_portfolio} "
                 f"!= stated closing {summary.closing_portfolio_cents}"
             )
+
+
+def validate_holdings_valuation(
+    holdings: Sequence[Holding],
+    stated_total_cents: int,
+    period_start: datetime.date,
+    period_end: datetime.date,
+) -> None:
+    """Assert printed holdings total equals the sum of position market values.
+
+    Each ``as_of_date`` must fall inside the statement period. The first
+    failure raises ``InvariantError``. Amounts stay integer cents.
+    """
+    total = 0
+    for holding in holdings:
+        if holding.as_of_date < period_start or holding.as_of_date > period_end:
+            raise InvariantError(
+                "Holding as_of_date "
+                f"{holding.as_of_date.isoformat()} is outside the statement period."
+            )
+        total += holding.market_value_cents
+    if total != stated_total_cents:
+        raise InvariantError(
+            f"Holdings valuation mismatch: sum {total} != stated total {stated_total_cents}"
+        )
 
 
 # ── Legacy Validators ───────────────────────────────────────────────────

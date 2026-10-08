@@ -25,12 +25,14 @@ import pdfplumber
 from app.adapters.base import InvestmentStatementAdapter
 from app.extraction.core import (
     parse_currency_to_cents,
+    parse_quantity_to_nanos,
     validate_table_against_schema,
 )
 from app.models.canonical import (
     BrokerageSummary,
     CanonicalTransaction,
     CashTransaction,
+    Holding,
     RawStatement,
     StatementSummary,
     TransactionType,
@@ -50,7 +52,11 @@ from app.models.exceptions import (
 )
 from app.models.raw import RawExtraction
 from app.models.schema import TableSchema
-from app.pipeline.validator import validate_cash_balance, validate_date_continuity
+from app.pipeline.validator import (
+    validate_cash_balance,
+    validate_date_continuity,
+    validate_holdings_valuation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -282,7 +288,7 @@ class SchwabAdapter(InvestmentStatementAdapter):
         txns: list[CanonicalTransaction] = []
 
         section_match = re.search(
-            r"(?:TRANSACTION ACTIVITY|TRANSACTION DETAILS|CASH TRANSACTIONS)\s*\n(.*?)(?:END OF STATEMENT|\Z)",
+            r"(?:TRANSACTION ACTIVITY|TRANSACTION DETAILS|CASH TRANSACTIONS)\s*\n(.*?)(?:\nPOSITIONS\b|END OF STATEMENT|\Z)",
             all_text,
             re.IGNORECASE | re.DOTALL,
         )
@@ -387,6 +393,86 @@ class SchwabAdapter(InvestmentStatementAdapter):
             )
 
         return txns
+
+    def parse_holdings(
+        self,
+        extraction: RawExtraction,
+        statement_id: UUID,
+        period_start: datetime.date,
+        period_end: datetime.date,
+    ) -> list[Holding]:
+        """Parse a printed POSITIONS table. Cash-only statements return no rows.
+
+        When POSITIONS is present, headers are closed and a Holdings Total line
+        is mandatory. The sum of market values must match that total.
+        """
+        all_text = "\n".join(p.page_text for p in extraction.pages)
+        if not re.search(r"(?m)^POSITIONS\s*$", all_text):
+            return []
+
+        section_match = re.search(
+            r"^POSITIONS\s*\n(.*?)(?:END OF STATEMENT|\Z)",
+            all_text,
+            re.IGNORECASE | re.DOTALL | re.MULTILINE,
+        )
+        if not section_match:
+            raise MissingSectionError("Could not locate POSITIONS section block.")
+
+        section_body = section_match.group(1).strip()
+        total_match = re.search(
+            r"Holdings Total:\s*([($]?-?[$]?[\d,]+\.\d{2}\)?)",
+            section_body,
+            re.IGNORECASE,
+        )
+        if not total_match:
+            raise MissingSectionError(
+                "Holdings Total is required when a POSITIONS section is printed."
+            )
+        stated_total = parse_currency_to_cents(total_match.group(1), allow_zero=True)
+        table_body = re.sub(
+            r"Holdings Total:.*",
+            "",
+            section_body,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+        lines = [line.strip() for line in table_body.split("\n") if line.strip()]
+        if not lines:
+            raise MissingSectionError("POSITIONS section is missing a header row.")
+
+        headers = [h.strip() for h in re.split(r"\s{2,}|\t|\|", lines[0]) if h.strip()]
+        rows: list[list[str]] = []
+        for line in lines[1:]:
+            parts = [p.strip() for p in re.split(r"\s{2,}|\t|\|", line) if p.strip()]
+            rows.append(parts)
+
+        schema = TableSchema(
+            name="schwab_positions",
+            headers=("Symbol", "Description", "Quantity", "Market Value"),
+            section_markers=("POSITIONS",),
+        )
+        validate_table_against_schema(headers, rows, schema)
+
+        holdings: list[Holding] = []
+        for row in rows:
+            symbol, description, quantity, market_value = row
+            holdings.append(
+                Holding(
+                    statement_id=statement_id,
+                    as_of_date=period_end,
+                    symbol=symbol,
+                    description=description,
+                    quantity_nanos=parse_quantity_to_nanos(quantity),
+                    market_value_cents=parse_currency_to_cents(market_value),
+                )
+            )
+
+        validate_holdings_valuation(holdings, stated_total, period_start, period_end)
+        logger.info(
+            "Parsed Schwab holdings",
+            extra={"holding_count": len(holdings)},
+        )
+        return holdings
 
     # ------------------------------------------------------------------
     # Backwards-compatible Legacy Extraction Entry Point

@@ -6,6 +6,7 @@ import pytest
 
 from app.extraction.core import (
     parse_currency_to_cents,
+    parse_quantity_to_nanos,
     validate_extraction_against_schemas,
     validate_table_against_schema,
 )
@@ -346,3 +347,35 @@ class TestExtractPdfToRaw:
         assert c2.table_index == 0
         assert c2.row_index == 1
         assert c2.col_index == 0
+
+
+class TestParseQuantityToNanos:
+    def test_whole_shares(self) -> None:
+        assert parse_quantity_to_nanos("10") == 10_000_000_000
+
+    def test_fractional_shares(self) -> None:
+        assert parse_quantity_to_nanos("2.5") == 2_500_000_000
+
+    def test_nine_decimal_places(self) -> None:
+        assert parse_quantity_to_nanos("1.000000001") == 1_000_000_001
+
+    def test_single_nano(self) -> None:
+        assert parse_quantity_to_nanos("0.000000001") == 1
+
+    def test_short_minus(self) -> None:
+        assert parse_quantity_to_nanos("-1") == -1_000_000_000
+
+    def test_short_parentheses(self) -> None:
+        assert parse_quantity_to_nanos("(1.5)") == -1_500_000_000
+
+    def test_too_many_decimals(self) -> None:
+        with pytest.raises(TokenError, match=r"more than 9 decimal places"):
+            parse_quantity_to_nanos("10.1234567891")
+
+    def test_zero_rejected(self) -> None:
+        with pytest.raises(TokenError, match=r"non-zero"):
+            parse_quantity_to_nanos("0")
+
+    def test_blank_rejected(self) -> None:
+        with pytest.raises(TokenError, match=r"non-empty"):
+            parse_quantity_to_nanos("  ")

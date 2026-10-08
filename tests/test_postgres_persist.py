@@ -16,6 +16,7 @@ from app.db.repository import (
     get_extraction_run,
     get_raw_pages,
     get_raw_payload_by_sha256,
+    get_statement_holdings,
     persist_canonical_statement,
     persist_raw_extraction,
     update_run_status,
@@ -27,6 +28,7 @@ from app.models.canonical import (
     CanonicalTransaction,
     CreditCardSummary,
     DepositorySummary,
+    Holding,
 )
 from app.models.enums import (
     AccountDomain,
@@ -464,7 +466,19 @@ class TestPostgresCanonicalPersistence:
             )
         ]
 
-        persist_canonical_statement(db_conn, account, statement, summary, txns)
+        holdings = [
+            Holding(
+                statement_id=statement.statement_id,
+                as_of_date=datetime.date(2025, 3, 31),
+                symbol="SYN",
+                description="SYNTHETIC Equity",
+                quantity_nanos=10_000_000_000,
+                market_value_cents=100000,
+            )
+        ]
+        persist_canonical_statement(
+            db_conn, account, statement, summary, txns, holdings=holdings
+        )
         db_conn.commit()
 
         res = get_canonical_statement(db_conn, statement.statement_id)
@@ -477,6 +491,12 @@ class TestPostgresCanonicalPersistence:
         assert summary_out.opening_cash_cents == 100000
         assert summary_out.opening_portfolio_cents == 5000000
         assert summary_out.closing_portfolio_cents == 5200000
+        stored = get_statement_holdings(db_conn, statement.statement_id)
+        assert len(stored) == 1
+        assert stored[0].symbol == "SYN"
+        assert stored[0].quantity_nanos == 10_000_000_000
+        assert stored[0].market_value_cents == 100000
+        assert stored[0].description == "SYNTHETIC Equity"
 
 
 class TestPostgresPersistenceFailures:

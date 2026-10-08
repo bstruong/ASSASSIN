@@ -55,7 +55,7 @@ def test_brokerage_cash_reconciliation() -> None:
     adapter = SchwabAdapter()
     raw = load_fixture("brokerage_cash_happy")
 
-    account, statement, summary, txns = adapter.parse_canonical(raw)
+    account, statement, summary, txns, _holdings = adapter.parse_canonical(raw)
     assert account.account_domain == AccountDomain.CUSTODIAL_BROKERAGE
     assert account.account_type == AccountType.BROKERAGE_CASH
     assert account.account_mask == "****7842"
@@ -74,7 +74,7 @@ def test_brokerage_portfolio_bridge() -> None:
     adapter = SchwabAdapter()
     raw = load_fixture("brokerage_portfolio_happy")
 
-    account, statement, summary, _ = adapter.parse_canonical(raw)
+    account, statement, summary, _, _holdings = adapter.parse_canonical(raw)
     assert account.account_domain == AccountDomain.CUSTODIAL_BROKERAGE
     assert statement.opening_balance_cents == 1_000_000
     assert statement.closing_balance_cents == 1_390_425

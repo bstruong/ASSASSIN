@@ -216,12 +216,6 @@ def validate_credit_card_reconciliation(
             f"credit summary new_balance_cents ({summary.new_balance_cents})"
         )
 
-    if (
-        summary.minimum_payment_due_cents is not None
-        and summary.minimum_payment_due_cents < 0
-    ):
-        raise InvariantError("minimum_payment_due_cents must be >= 0")
-
     computed_new = (
         summary.previous_balance_cents
         + summary.purchases_cents

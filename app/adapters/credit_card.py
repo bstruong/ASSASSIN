@@ -26,6 +26,7 @@ from app.models.enums import (
 )
 from app.models.exceptions import (
     AmbiguousAccountsError,
+    InvariantError,
     MissingSectionError,
     TokenError,
 )
@@ -204,7 +205,9 @@ class StandardCreditCardAdapter(CreditCardStatementAdapter):
         clean_digits = re.sub(r"[^\d.]", "", val_min)
         clean_min = f"${clean_digits}"
         parsed_min = parse_currency_to_cents(clean_min, allow_zero=True)
-        min_payment_cents = -abs(parsed_min) if is_min_neg else abs(parsed_min)
+        if is_min_neg:
+            raise InvariantError("minimum_payment_due_cents must be >= 0")
+        min_payment_cents = parsed_min
 
         # Bucket fields are unsigned magnitudes for the revolving equation.
         # Opening/closing liability balances keep printed signs (no abs rewrite).

@@ -7,8 +7,12 @@ payment due dates, minimum payment fields, and fail-loud invariant checks.
 
 import json
 from pathlib import Path
+from uuid import uuid4
+
+from pydantic import ValidationError
 
 from app.adapters.credit_card import StandardCreditCardAdapter
+from app.models.canonical import CreditCardSummary
 from app.models.enums import AccountDomain, AccountType, RunStatus
 from app.models.exceptions import InvariantError, MissingSectionError
 from app.models.raw import ExtractionRun, RawExtraction, RawPage, RawPayload
@@ -98,6 +102,48 @@ def test_missing_due_date_fails() -> None:
     print("  ✓ Missing payment due date rejected with MissingSectionError.")
 
 
+def test_minimum_payment_required_on_model() -> None:
+    print("Testing CreditCardSummary rejects a missing minimum payment...")
+    try:
+        CreditCardSummary(
+            statement_id=uuid4(),
+            previous_balance_cents=50000,
+            payments_credits_cents=0,
+            purchases_cents=0,
+            cash_advances_cents=0,
+            balance_transfers_cents=0,
+            fees_charged_cents=0,
+            interest_charged_cents=0,
+            new_balance_cents=50000,
+        )
+        raise AssertionError("Expected ValidationError when minimum payment is omitted")
+    except ValidationError:
+        pass
+    print("  ✓ Omitted minimum_payment_due_cents rejected at the model boundary.")
+
+
+def test_negative_minimum_payment_fails() -> None:
+    print("Testing CreditCardAdapter fail-loud on a negative minimum payment...")
+    adapter = StandardCreditCardAdapter()
+    raw = load_card_fixture("card_happy")
+    corrupted_text = raw.pages[0].page_text.replace(
+        "Minimum Payment Due: $35.00",
+        "Minimum Payment Due: -$10.00",
+    )
+    raw_corrupted = RawExtraction(
+        payload=raw.payload,
+        run=raw.run,
+        pages=[RawPage(run_id=raw.run.run_id, page_number=1, page_text=corrupted_text)],
+    )
+    try:
+        adapter.parse_canonical(raw_corrupted)
+        raise AssertionError("Expected InvariantError for negative minimum payment")
+    except InvariantError as exc:
+        if "minimum_payment_due_cents must be >= 0" not in str(exc):
+            raise
+    print("  ✓ Negative minimum payment rejected with InvariantError.")
+
+
 def main() -> None:
     print("=" * 60)
     print("ASSASSIN Step 4 QA Validation: Credit Card Adapter")
@@ -105,6 +151,8 @@ def main() -> None:
     test_credit_card_adapter_reconciliation()
     test_credit_card_equation_mismatch_fails()
     test_missing_due_date_fails()
+    test_minimum_payment_required_on_model()
+    test_negative_minimum_payment_fails()
     print("=" * 60)
     print("All Step 4 Credit Card Adapter verifications PASSED successfully!")
     print("=" * 60)

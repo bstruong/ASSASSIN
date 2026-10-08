@@ -103,7 +103,7 @@ class CreditCardSummary(BaseModel):
     fees_charged_cents: int = Field(ge=0)
     interest_charged_cents: int = Field(ge=0)
     new_balance_cents: int
-    minimum_payment_due_cents: int | None = None
+    minimum_payment_due_cents: int = Field(ge=0)
     payment_due_date: datetime.date | None = None
 
 

@@ -158,6 +158,45 @@ class TestInvestmentAdapter:
         )
         assert computed_closing == summary.closing_portfolio_cents
 
+    def test_negative_transfer_in_is_not_flipped(self) -> None:
+        """A parenthetical transfer-in must fail instead of being stored as a credit."""
+        extraction = load_fixture_as_raw_extraction("brokerage_portfolio_happy")
+        bad_text = extraction.pages[0].page_text.replace(
+            "Transfers In: $4,000.00",
+            "Transfers In: ($4,000.00)",
+        )
+        with pytest.raises(InvariantError, match=r"^transfers_in_cents must be >= 0$"):
+            self.adapter.parse_summary(create_raw_extraction_from_text(bad_text))
+
+    def test_negative_transfer_out_is_not_flipped(self) -> None:
+        """A leading minus on transfers out must not be stripped with abs()."""
+        extraction = load_fixture_as_raw_extraction("brokerage_portfolio_happy")
+        bad_text = extraction.pages[0].page_text.replace(
+            "Transfers Out: $100.00",
+            "Transfers Out: -$100.00",
+        )
+        with pytest.raises(InvariantError, match=r"^transfers_out_cents must be >= 0$"):
+            self.adapter.parse_summary(create_raw_extraction_from_text(bad_text))
+
+    def test_negative_realized_gain_stays_signed(self) -> None:
+        """Realized gain/loss is a signed term and must not pass through abs()."""
+        extraction = load_fixture_as_raw_extraction("brokerage_portfolio_happy")
+        bad_text = extraction.pages[0].page_text.replace(
+            "Realized Gain/Loss: $500.00",
+            "Realized Gain/Loss: -$500.00",
+        )
+        bad_text = bad_text.replace(
+            "Ending Portfolio Value: $54,250.00",
+            "Ending Portfolio Value: $53,250.00",
+        )
+        _opening, _closing, summary = self.adapter.parse_summary(
+            create_raw_extraction_from_text(bad_text)
+        )
+        assert summary.realized_gains_cents == -50_000
+        assert summary.unrealized_gains_cents == -25_000
+        assert summary.transfers_in_cents == 400_000
+        assert summary.transfers_out_cents == 10_000
+
     def test_cash_balance_mismatch_1_cent_fails(self) -> None:
         """1-cent discrepancy in cash closing balance must fail loudly."""
         extraction = load_fixture_as_raw_extraction("brokerage_cash_happy")

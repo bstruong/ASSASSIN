@@ -26,6 +26,7 @@ from app.models.enums import (
 )
 from app.models.exceptions import (
     AmbiguousAccountsError,
+    InvariantError,
     MissingSectionError,
     TokenError,
 )
@@ -33,6 +34,16 @@ from app.models.raw import RawExtraction
 from app.models.schema import TableSchema
 
 logger = logging.getLogger(__name__)
+
+# Printed summary money, including a leading minus or accounting parentheses.
+_SUMMARY_MONEY = r"([($]?-?[$]?[\d,]+\.\d{2}\)?)"
+
+
+def _require_non_negative(field_name: str, cents: int) -> int:
+    """Reject a printed negative on a magnitude bucket before the summary model."""
+    if cents < 0:
+        raise InvariantError(f"{field_name} must be >= 0")
+    return cents
 
 
 class StandardDepositoryAdapter(DepositoryStatementAdapter):
@@ -154,44 +165,38 @@ class StandardDepositoryAdapter(DepositoryStatementAdapter):
         """Extract balance and bucket totals from summary section."""
         all_text = "\n".join(p.page_text for p in extraction.pages)
 
-        def extract_cents(pattern: str, required: bool = True, default: int = 0) -> int:
-            match = re.search(pattern, all_text, re.IGNORECASE)
-            if not match:
-                if required:
-                    raise MissingSectionError(
-                        f"Missing summary field matching pattern: {pattern}"
-                    )
-                return default
-            val_str = match.group(1).strip()
-            # If standard value, parse to cents
-            is_neg = val_str.startswith("-") or (
-                val_str.startswith("(") and val_str.endswith(")")
+        def extract_signed_cents(label: str) -> int:
+            match = re.search(
+                rf"{label}[:\s]+{_SUMMARY_MONEY}",
+                all_text,
+                re.IGNORECASE,
             )
-            clean_str = val_str.strip("()-")
-            if not clean_str.startswith("$"):
-                clean_str = f"${clean_str}"
-            cents = parse_currency_to_cents(clean_str, allow_zero=True)
-            return -abs(cents) if is_neg else abs(cents)
+            if not match:
+                raise MissingSectionError(f"Missing summary field: {label}")
+            return parse_currency_to_cents(match.group(1).strip(), allow_zero=True)
 
-        opening_cents = extract_cents(r"Starting Balance[^$\d]*([$]?-?[\d,]+\.\d{2})")
-        deposits_cents = extract_cents(
-            r"Deposits and Additions[^$\d]*([$]?[\d,]+\.\d{2})", default=0
+        # Balances stay signed. Bucket totals are magnitudes and reject a printed minus.
+        opening_cents = extract_signed_cents("Starting Balance")
+        deposits_cents = _require_non_negative(
+            "deposits_cents", extract_signed_cents("Deposits and Additions")
         )
-        withdrawals_cents = extract_cents(
-            r"Withdrawals and Subtractions[^$\d]*([$]?[\d,]+\.\d{2})", default=0
+        withdrawals_cents = _require_non_negative(
+            "withdrawals_cents", extract_signed_cents("Withdrawals and Subtractions")
         )
-        interest_paid_cents = extract_cents(
-            r"Interest Paid[^$\d]*([$]?[\d,]+\.\d{2})", default=0
+        interest_paid_cents = _require_non_negative(
+            "interest_paid_cents", extract_signed_cents("Interest Paid")
         )
-        fees_cents = extract_cents(r"Fees Charged[^$\d]*([$]?[\d,]+\.\d{2})", default=0)
-        closing_cents = extract_cents(r"Ending Balance[^$\d]*([$]?-?[\d,]+\.\d{2})")
+        fees_cents = _require_non_negative(
+            "fees_cents", extract_signed_cents("Fees Charged")
+        )
+        closing_cents = extract_signed_cents("Ending Balance")
 
         summary = DepositorySummary(
             statement_id=extraction.run.run_id,  # Will be reassigned to canonical statement_id if needed
-            deposits_cents=abs(deposits_cents),
-            withdrawals_cents=abs(withdrawals_cents),
-            interest_paid_cents=abs(interest_paid_cents),
-            fees_cents=abs(fees_cents),
+            deposits_cents=deposits_cents,
+            withdrawals_cents=withdrawals_cents,
+            interest_paid_cents=interest_paid_cents,
+            fees_cents=fees_cents,
         )
 
         return opening_cents, closing_cents, summary

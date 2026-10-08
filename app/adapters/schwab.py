@@ -236,17 +236,20 @@ class SchwabAdapter(InvestmentStatementAdapter):
                 r"(?:Ending|Closing)\s+Portfolio\s*(?:Value)?[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
                 required=True,
             )
-            raw_tin = extract_cents(
+            transfers_in = extract_cents(
                 r"Transfers\s+In[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
                 required=True,
             )
-            transfers_in = abs(raw_tin) if raw_tin is not None else None
-
-            raw_tout = extract_cents(
+            transfers_out = extract_cents(
                 r"Transfers\s+Out[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",
                 required=True,
             )
-            transfers_out = abs(raw_tout) if raw_tout is not None else None
+            # Magnitudes only. A printed minus is rejected before BrokerageSummary.
+            # required=True above already raises when the token is absent.
+            if transfers_in is not None and transfers_in < 0:
+                raise InvariantError("transfers_in_cents must be >= 0")
+            if transfers_out is not None and transfers_out < 0:
+                raise InvariantError("transfers_out_cents must be >= 0")
 
             income_dividends = extract_cents(
                 r"(?:Income\s*(?:and|&)?\s*Dividends|Dividends\s*(?:and|&)?\s*Income)[:\s]+([($]?-?[$]?[\d,]+\.\d{2}\)?)",

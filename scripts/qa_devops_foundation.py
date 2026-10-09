@@ -55,6 +55,11 @@ def test_agents_markdown_spec(root_dir: Path) -> None:
         "Enforces demonstration over code inspection for PM acceptance.",
     )
     assert_condition(
+        "Manual UI QA mandate documented",
+        "Manual UI QA" in content and "Synthetic test data" in content,
+        "Browser-visible features require click-path QA and synthetic seed data.",
+    )
+    assert_condition(
         "Agent-to-Agent Review protocol documented",
         "Agent-to-Agent Review Protocol" in content,
         "Documents dual-agent review roles, checklists, and automated gates.",

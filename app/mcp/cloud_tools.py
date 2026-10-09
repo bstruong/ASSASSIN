@@ -383,3 +383,221 @@ def get_financial_summary(
             }
     finally:
         conn.close()
+
+
+_MONTH_KEY_PATTERN = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
+
+_PORTFOLIO_BRIDGE_COLUMNS = (
+    "opening_portfolio_cents",
+    "transfers_in_cents",
+    "transfers_out_cents",
+    "income_dividends_cents",
+    "realized_gains_cents",
+    "unrealized_gains_cents",
+    "closing_portfolio_cents",
+)
+
+
+def _require_month_key(month: str | None) -> str | None:
+    """Accept only a calendar month key (YYYY-MM) or no filter."""
+    if month is None:
+        return None
+    if not isinstance(month, str) or _MONTH_KEY_PATTERN.fullmatch(month) is None:
+        raise CloudToolError(
+            f"Invalid month key: {month!r}. Expected calendar month YYYY-MM."
+        )
+    return month
+
+
+def _require_int_cents(value: object, label: str) -> int:
+    """Reject bools, floats, and nulls. Monetary totals stay integer cents."""
+    if type(value) is not int:
+        raise CloudToolError(f"{label} must be integer cents.")
+    return value
+
+
+def get_monthly_aggregates(
+    month: str | None = None,
+    database_url: str | None = None,
+) -> dict[str, Any]:
+    """Return SUM/COUNT of canonical categories grouped by calendar month.
+
+    Tier 2 tool. Groups ``transactions.post_date`` by YYYY-MM and sums
+    integer cents for deposit, purchase, and withdrawal. Other categories
+    remain in ``txn_count`` only. No transaction rows and no row-level fields.
+
+    Args:
+        month: Optional YYYY-MM filter. Invalid keys fail loudly.
+        database_url: Optional override for the database connection URL.
+
+    Returns:
+        Dict with ``group_by``, optional ``month`` filter, and ``months``.
+        Each month entry has ``txn_count`` plus deposit, purchase, and
+        withdrawal totals in integer cents.
+
+    Raises:
+        CloudToolError: If ``month`` is not a calendar YYYY-MM key.
+    """
+    month_key = _require_month_key(month)
+    logger.info(
+        "Monthly aggregates requested (Tier 2)",
+        extra={"month": month_key},
+    )
+
+    conn = get_connection(database_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                  to_char(post_date, 'YYYY-MM') AS month,
+                  COUNT(*) AS txn_count,
+                  (COALESCE(SUM(CASE WHEN transaction_category = 'deposit'
+                    THEN amount_cents ELSE 0 END), 0))::bigint AS deposits_cents,
+                  (COALESCE(SUM(CASE WHEN transaction_category = 'purchase'
+                    THEN amount_cents ELSE 0 END), 0))::bigint AS purchases_cents,
+                  (COALESCE(SUM(CASE WHEN transaction_category = 'withdrawal'
+                    THEN amount_cents ELSE 0 END), 0))::bigint AS withdrawals_cents
+                FROM transactions
+                WHERE (%s::text IS NULL OR to_char(post_date, 'YYYY-MM') = %s)
+                GROUP BY to_char(post_date, 'YYYY-MM')
+                ORDER BY to_char(post_date, 'YYYY-MM')
+                """,
+                (month_key, month_key),
+            )
+            months: list[dict[str, Any]] = []
+            txn_count = 0
+            for row in cur.fetchall():
+                entry = {
+                    "month": row[0],
+                    "txn_count": _require_int_cents(row[1], "txn_count"),
+                    "deposits_cents": _require_int_cents(row[2], "deposits_cents"),
+                    "purchases_cents": _require_int_cents(row[3], "purchases_cents"),
+                    "withdrawals_cents": _require_int_cents(
+                        row[4], "withdrawals_cents"
+                    ),
+                }
+                txn_count += entry["txn_count"]
+                months.append(entry)
+        logger.info(
+            "Monthly aggregates completed (Tier 2)",
+            extra={
+                "month": month_key,
+                "month_count": len(months),
+                "txn_count": txn_count,
+            },
+        )
+        return {
+            "group_by": "calendar_month",
+            "month": month_key,
+            "months": months,
+        }
+    finally:
+        conn.close()
+
+
+def verify_portfolio_bridge(
+    database_url: str | None = None,
+) -> dict[str, Any]:
+    """Check the portfolio bridge across statement_brokerage_summaries.
+
+    Aggregate equation, integer cents only::
+
+        opening_portfolio + transfers_in - transfers_out
+            + income_dividends + realized_gains + unrealized_gains
+            == closing_portfolio
+
+    A null bridge column means the bridge is absent. Nulls are not treated
+    as zero. A mismatch raises ``CloudToolError`` instead of returning a
+    soft failure.
+
+    Args:
+        database_url: Optional override for the database connection URL.
+
+    Returns:
+        Pass structure with ``passed`` true, ``statement_count``, and the
+        integer component totals including ``computed_closing_portfolio_cents``.
+
+    Raises:
+        CloudToolError: If no bridge rows exist, any bridge column is null,
+            or the aggregate equation is off by any number of cents.
+    """
+    logger.info("Portfolio bridge verification requested (Tier 2)")
+
+    conn = get_connection(database_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                  COUNT(*) AS statement_count,
+                  COUNT(*) FILTER (
+                    WHERE opening_portfolio_cents IS NULL
+                       OR closing_portfolio_cents IS NULL
+                       OR transfers_in_cents IS NULL
+                       OR transfers_out_cents IS NULL
+                       OR income_dividends_cents IS NULL
+                       OR realized_gains_cents IS NULL
+                       OR unrealized_gains_cents IS NULL
+                  ) AS null_bridge_count,
+                  SUM(opening_portfolio_cents)::bigint AS opening_portfolio_cents,
+                  SUM(transfers_in_cents)::bigint AS transfers_in_cents,
+                  SUM(transfers_out_cents)::bigint AS transfers_out_cents,
+                  SUM(income_dividends_cents)::bigint AS income_dividends_cents,
+                  SUM(realized_gains_cents)::bigint AS realized_gains_cents,
+                  SUM(unrealized_gains_cents)::bigint AS unrealized_gains_cents,
+                  SUM(closing_portfolio_cents)::bigint AS closing_portfolio_cents
+                FROM statement_brokerage_summaries
+                """
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise CloudToolError("Portfolio bridge is absent.")
+
+        statement_count = _require_int_cents(row[0], "statement_count")
+        null_bridge_count = _require_int_cents(row[1], "null_bridge_count")
+        if statement_count == 0 or null_bridge_count > 0:
+            logger.warning(
+                "Portfolio bridge check failed (Tier 2)",
+                extra={
+                    "statement_count": statement_count,
+                    "null_bridge_count": null_bridge_count,
+                    "failure": "absent",
+                },
+            )
+            raise CloudToolError("Portfolio bridge is absent.")
+
+        components = {
+            column: _require_int_cents(row[index + 2], column)
+            for index, column in enumerate(_PORTFOLIO_BRIDGE_COLUMNS)
+        }
+        computed_closing = (
+            components["opening_portfolio_cents"]
+            + components["transfers_in_cents"]
+            - components["transfers_out_cents"]
+            + components["income_dividends_cents"]
+            + components["realized_gains_cents"]
+            + components["unrealized_gains_cents"]
+        )
+        if computed_closing != components["closing_portfolio_cents"]:
+            logger.warning(
+                "Portfolio bridge check failed (Tier 2)",
+                extra={
+                    "statement_count": statement_count,
+                    "failure": "mismatch",
+                },
+            )
+            raise CloudToolError("Portfolio bridge mismatch.")
+
+        logger.info(
+            "Portfolio bridge verified (Tier 2)",
+            extra={"statement_count": statement_count, "passed": True},
+        )
+        return {
+            "passed": True,
+            "statement_count": statement_count,
+            **components,
+            "computed_closing_portfolio_cents": computed_closing,
+        }
+    finally:
+        conn.close()

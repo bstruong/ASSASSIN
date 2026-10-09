@@ -35,6 +35,16 @@ from app.models.schema import TableSchema
 
 logger = logging.getLogger(__name__)
 
+# Printed summary money, including a leading minus or accounting parentheses.
+_SUMMARY_MONEY = r"([($]?-?[$]?[\d,]+\.\d{2}\)?)"
+
+
+def _require_non_negative(field_name: str, cents: int) -> int:
+    """Reject a printed negative on a magnitude bucket before the summary model."""
+    if cents < 0:
+        raise InvariantError(f"{field_name} must be >= 0")
+    return cents
+
 
 class StandardCreditCardAdapter(CreditCardStatementAdapter):
     """Adapter for revolving credit card statements."""
@@ -123,46 +133,37 @@ class StandardCreditCardAdapter(CreditCardStatementAdapter):
         """Extract revolving credit balances, printed buckets, and due date."""
         all_text = "\n".join(p.page_text for p in extraction.pages)
 
-        def extract_cents(pattern: str, required: bool = True, default: int = 0) -> int:
-            match = re.search(pattern, all_text, re.IGNORECASE)
-            if not match:
-                if required:
-                    raise MissingSectionError(
-                        f"Missing summary field matching pattern: {pattern}"
-                    )
-                return default
-            val_str = match.group(1).strip()
-            is_neg = val_str.startswith("-") or (
-                val_str.startswith("(") and val_str.endswith(")")
+        def extract_signed_cents(label: str) -> int:
+            match = re.search(
+                rf"{label}[:\s]+{_SUMMARY_MONEY}",
+                all_text,
+                re.IGNORECASE,
             )
-            clean_str = val_str.strip("()-")
-            if not clean_str.startswith("$"):
-                clean_str = f"${clean_str}"
-            cents = parse_currency_to_cents(clean_str, allow_zero=True)
-            return -abs(cents) if is_neg else abs(cents)
+            if not match:
+                raise MissingSectionError(f"Missing summary field: {label}")
+            return parse_currency_to_cents(match.group(1).strip(), allow_zero=True)
 
-        prev_balance_cents = extract_cents(
-            r"Previous Balance[^$\d]*([$]?-?[\d,]+\.\d{2})"
+        # Liability balances stay signed. Bucket totals reject a printed minus.
+        prev_balance_cents = extract_signed_cents("Previous Balance")
+        payments_credits_cents = _require_non_negative(
+            "payments_credits_cents", extract_signed_cents("Payments and Credits")
         )
-        payments_credits_cents = extract_cents(
-            r"Payments and Credits[^$\d]*([$]?[\d,]+\.\d{2})", default=0
+        purchases_cents = _require_non_negative(
+            "purchases_cents", extract_signed_cents("Purchases")
         )
-        purchases_cents = extract_cents(
-            r"Purchases[^$\d]*([$]?[\d,]+\.\d{2})", default=0
+        cash_advances_cents = _require_non_negative(
+            "cash_advances_cents", extract_signed_cents("Cash Advances")
         )
-        cash_advances_cents = extract_cents(
-            r"Cash Advances[^$\d]*([$]?[\d,]+\.\d{2})", default=0
+        balance_transfers_cents = _require_non_negative(
+            "balance_transfers_cents", extract_signed_cents("Balance Transfers")
         )
-        balance_transfers_cents = extract_cents(
-            r"Balance Transfers[^$\d]*([$]?[\d,]+\.\d{2})", default=0
+        fees_charged_cents = _require_non_negative(
+            "fees_charged_cents", extract_signed_cents("Fees Charged")
         )
-        fees_charged_cents = extract_cents(
-            r"Fees Charged[^$\d]*([$]?[\d,]+\.\d{2})", default=0
+        interest_charged_cents = _require_non_negative(
+            "interest_charged_cents", extract_signed_cents("Interest Charged")
         )
-        interest_charged_cents = extract_cents(
-            r"Interest Charged[^$\d]*([$]?[\d,]+\.\d{2})", default=0
-        )
-        new_balance_cents = extract_cents(r"New Balance[^$\d]*([$]?-?[\d,]+\.\d{2})")
+        new_balance_cents = extract_signed_cents("New Balance")
 
         # Payment due date
         due_date: datetime.date | None = None
@@ -209,19 +210,17 @@ class StandardCreditCardAdapter(CreditCardStatementAdapter):
             raise InvariantError("minimum_payment_due_cents must be >= 0")
         min_payment_cents = parsed_min
 
-        # Bucket fields are unsigned magnitudes for the revolving equation.
-        # Opening/closing liability balances keep printed signs (no abs rewrite).
         summary = CreditCardSummary(
             statement_id=extraction.run.run_id,
             payment_due_date=due_date,
             minimum_payment_due_cents=min_payment_cents,
             previous_balance_cents=prev_balance_cents,
-            payments_credits_cents=abs(payments_credits_cents),
-            purchases_cents=abs(purchases_cents),
-            cash_advances_cents=abs(cash_advances_cents),
-            balance_transfers_cents=abs(balance_transfers_cents),
-            fees_charged_cents=abs(fees_charged_cents),
-            interest_charged_cents=abs(interest_charged_cents),
+            payments_credits_cents=payments_credits_cents,
+            purchases_cents=purchases_cents,
+            cash_advances_cents=cash_advances_cents,
+            balance_transfers_cents=balance_transfers_cents,
+            fees_charged_cents=fees_charged_cents,
+            interest_charged_cents=interest_charged_cents,
             new_balance_cents=new_balance_cents,
         )
 

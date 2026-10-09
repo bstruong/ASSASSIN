@@ -181,3 +181,90 @@ class TestDepositoryAdapter:
         )
         with pytest.raises(InvariantError, match="Depository bucket equation failed"):
             self.adapter.parse_canonical(extraction)
+
+    def test_missing_summary_amount_fails(self) -> None:
+        extraction = load_fixture_as_raw_extraction("checking_happy")
+        extraction.pages[0] = RawPage(
+            run_id=extraction.run.run_id,
+            page_number=1,
+            page_text=extraction.pages[0].page_text.replace(
+                "Starting Balance: $1,000.00\n",
+                "",
+            ),
+            tokens=[],
+        )
+        with pytest.raises(
+            MissingSectionError, match=r"^Missing summary field: Starting Balance$"
+        ):
+            self.adapter.parse_summary(extraction)
+
+    def test_negative_opening_balance_stays_signed(self) -> None:
+        """Printed minus after the dollar sign is a signed balance, not a magnitude."""
+        extraction = load_fixture_as_raw_extraction("checking_happy")
+        extraction.pages[0] = RawPage(
+            run_id=extraction.run.run_id,
+            page_number=1,
+            page_text=extraction.pages[0].page_text.replace(
+                "Starting Balance: $1,000.00",
+                "Starting Balance: $-10.00",
+            ),
+            tokens=[],
+        )
+        opening_cents, closing_cents, summary = self.adapter.parse_summary(extraction)
+        assert opening_cents == -1000
+        assert closing_cents == 129500
+        assert summary.deposits_cents == 50000
+
+    def test_parenthetical_closing_balance_stays_signed(self) -> None:
+        """Accounting parentheses on a balance stay negative integer cents."""
+        extraction = load_fixture_as_raw_extraction("checking_happy")
+        extraction.pages[0] = RawPage(
+            run_id=extraction.run.run_id,
+            page_number=1,
+            page_text=extraction.pages[0].page_text.replace(
+                "Ending Balance: $1,295.00",
+                "Ending Balance: ($1,295.00)",
+            ),
+            tokens=[],
+        )
+        _opening_cents, closing_cents, _summary = self.adapter.parse_summary(extraction)
+        assert closing_cents == -129500
+
+    @pytest.mark.parametrize(
+        ("printed", "replacement", "message"),
+        [
+            (
+                "Deposits and Additions: $500.00",
+                "Deposits and Additions: ($500.00)",
+                "deposits_cents must be >= 0",
+            ),
+            (
+                "Withdrawals and Subtractions: $200.00",
+                "Withdrawals and Subtractions: -$200.00",
+                "withdrawals_cents must be >= 0",
+            ),
+            (
+                "Interest Paid: $5.00",
+                "Interest Paid: $-5.00",
+                "interest_paid_cents must be >= 0",
+            ),
+            (
+                "Fees Charged: $10.00",
+                "Fees Charged: ($10.00)",
+                "fees_cents must be >= 0",
+            ),
+        ],
+    )
+    def test_negative_sidecar_magnitude_fails_before_summary(
+        self, printed: str, replacement: str, message: str
+    ) -> None:
+        """A printed negative bucket must not be flipped positive with abs()."""
+        extraction = load_fixture_as_raw_extraction("checking_happy")
+        extraction.pages[0] = RawPage(
+            run_id=extraction.run.run_id,
+            page_number=1,
+            page_text=extraction.pages[0].page_text.replace(printed, replacement),
+            tokens=[],
+        )
+        with pytest.raises(InvariantError, match=rf"^{message}$"):
+            self.adapter.parse_summary(extraction)

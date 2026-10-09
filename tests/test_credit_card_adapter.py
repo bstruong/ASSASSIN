@@ -237,3 +237,102 @@ class TestCreditCardAdapter:
         )
         with pytest.raises(ValueError, match="not valid for domain"):
             self.adapter.parse_canonical(load_card_fixture("card_happy"))
+
+    def test_missing_summary_amount_fails(self) -> None:
+        extraction = load_card_fixture("card_happy")
+        extraction.pages[0] = RawPage(
+            run_id=extraction.run.run_id,
+            page_number=1,
+            page_text=extraction.pages[0].page_text.replace(
+                "Previous Balance: $500.00\n",
+                "",
+            ),
+            tokens=[],
+        )
+        with pytest.raises(
+            MissingSectionError, match=r"^Missing summary field: Previous Balance$"
+        ):
+            self.adapter.parse_summary(extraction)
+
+    def test_negative_new_balance_stays_signed(self) -> None:
+        """A credit balance keeps its printed sign. abs() must not flip it."""
+        extraction = load_card_fixture("card_happy")
+        extraction.pages[0] = RawPage(
+            run_id=extraction.run.run_id,
+            page_number=1,
+            page_text=extraction.pages[0].page_text.replace(
+                "New Balance: $280.00",
+                "New Balance: $-10.00",
+            ),
+            tokens=[],
+        )
+        previous_cents, new_cents, summary = self.adapter.parse_summary(extraction)
+        assert previous_cents == 50000
+        assert new_cents == -1000
+        assert summary.new_balance_cents == -1000
+        assert summary.purchases_cents == 25000
+
+    def test_parenthetical_previous_balance_stays_signed(self) -> None:
+        """Parentheses on a card balance are signed cents, not a dropped sign."""
+        extraction = load_card_fixture("card_happy")
+        extraction.pages[0] = RawPage(
+            run_id=extraction.run.run_id,
+            page_number=1,
+            page_text=extraction.pages[0].page_text.replace(
+                "Previous Balance: $500.00",
+                "Previous Balance: ($500.00)",
+            ),
+            tokens=[],
+        )
+        previous_cents, _new_cents, summary = self.adapter.parse_summary(extraction)
+        assert previous_cents == -50000
+        assert summary.previous_balance_cents == -50000
+
+    @pytest.mark.parametrize(
+        ("printed", "replacement", "message"),
+        [
+            (
+                "Payments and Credits: $500.00",
+                "Payments and Credits: ($500.00)",
+                "payments_credits_cents must be >= 0",
+            ),
+            (
+                "Purchases: $250.00",
+                "Purchases: -$250.00",
+                "purchases_cents must be >= 0",
+            ),
+            (
+                "Cash Advances: $0.00",
+                "Cash Advances: $-1.00",
+                "cash_advances_cents must be >= 0",
+            ),
+            (
+                "Balance Transfers: $0.00",
+                "Balance Transfers: ($1.00)",
+                "balance_transfers_cents must be >= 0",
+            ),
+            (
+                "Fees Charged: $25.00",
+                "Fees Charged: -$25.00",
+                "fees_charged_cents must be >= 0",
+            ),
+            (
+                "Interest Charged: $5.00",
+                "Interest Charged: ($5.00)",
+                "interest_charged_cents must be >= 0",
+            ),
+        ],
+    )
+    def test_negative_sidecar_magnitude_fails_before_summary(
+        self, printed: str, replacement: str, message: str
+    ) -> None:
+        """A printed negative card bucket must fail before CreditCardSummary is built."""
+        extraction = load_card_fixture("card_happy")
+        extraction.pages[0] = RawPage(
+            run_id=extraction.run.run_id,
+            page_number=1,
+            page_text=extraction.pages[0].page_text.replace(printed, replacement),
+            tokens=[],
+        )
+        with pytest.raises(InvariantError, match=rf"^{message}$"):
+            self.adapter.parse_summary(extraction)

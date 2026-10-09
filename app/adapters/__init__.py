@@ -17,6 +17,7 @@ from app.adapters.registry import (
     match_adapter,
 )
 from app.adapters.schwab import SchwabAdapter
+from app.adapters.vanguard import VanguardAdapter
 
 __all__ = [
     "AdapterRegistry",
@@ -29,6 +30,7 @@ __all__ = [
     "StandardCreditCardAdapter",
     "StandardDepositoryAdapter",
     "StatementAdapter",
+    "VanguardAdapter",
     "default_registry",
     "get_default_registry",
     "match_adapter",

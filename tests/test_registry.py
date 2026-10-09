@@ -18,6 +18,7 @@ from app.adapters.registry import (
     match_adapter,
 )
 from app.adapters.schwab import SchwabAdapter
+from app.adapters.vanguard import VanguardAdapter
 from app.models.enums import AccountDomain, AccountType
 from app.models.exceptions import AdapterRegistryError
 
@@ -131,6 +132,17 @@ class TestAdapterRegistryMatching:
 
         assert isinstance(matched, SchwabAdapter)
         assert matched.adapter_id == "schwab_brokerage"
+
+    def test_match_vanguard_adapter(self, tmp_path: Path) -> None:
+        pdf_path = create_test_pdf(
+            tmp_path / "vanguard.pdf",
+            ["VANGUARD BROKERAGE SERVICES", "Statement of Account"],
+        )
+        registry = get_default_registry()
+        matched = registry.match(pdf_path)
+
+        assert isinstance(matched, VanguardAdapter)
+        assert matched.adapter_id == "vanguard_brokerage"
 
     def test_zero_matches_fails_loudly(self, tmp_path: Path) -> None:
         pdf_path = create_test_pdf(

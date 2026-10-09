@@ -17,6 +17,7 @@ from app.adapters.combined import StandardCombinedDepositoryAdapter
 from app.adapters.credit_card import StandardCreditCardAdapter
 from app.adapters.depository import StandardDepositoryAdapter
 from app.adapters.schwab import SchwabAdapter
+from app.adapters.vanguard import VanguardAdapter
 from app.models.exceptions import AdapterRegistryError
 
 logger = logging.getLogger(__name__)
@@ -178,6 +179,7 @@ def get_default_registry() -> AdapterRegistry:
             StandardDepositoryAdapter(),
             StandardCreditCardAdapter(),
             SchwabAdapter(),
+            VanguardAdapter(),
             StandardCombinedDepositoryAdapter(),
         ]
     )

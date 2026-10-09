@@ -6,6 +6,14 @@
 - **Executable QA Script:** `uv run python scripts/qa_<feature>.py`
 - **Expected Outcome:** [Summary of expected terminal output, happy path demo, and fail-loud demonstrations]
 
+## Manual UI QA
+[Required when this PR changes a screen a human can open in a browser. Otherwise write: `Not applicable (no user-visible UI).`]
+- **Start:** `uv run uvicorn app.api.app:app --host 127.0.0.1 --port 8000`
+- **Open:** `http://127.0.0.1:8000/dashboard` (or the route this feature uses)
+- **Synthetic data:** `uv run python scripts/seed_<feature>.py` — or `Not required (empty state is enough)`
+- **Happy path:** [Click-by-click steps and what should appear on screen]
+- **Negative path:** [What to submit that must fail loudly, and what the screen should show]
+
 ## Verification & Test Coverage
 - [ ] **Linter:** `uv run ruff check .` passes cleanly.
 - [ ] **Formatter:** `uv run ruff format --check .` passes cleanly.

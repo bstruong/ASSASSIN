@@ -99,6 +99,16 @@ Every pull request and feature deliverable **MUST** satisfy the following:
      - Test coverage report.
      - Exact instructions for the PM to execute the verification script.
 
+3. **Manual UI QA (when the feature is user-visible):**
+   - If the change touches a screen a human can open (HTMX dashboard, forms, uploads, routes rendered in a browser), the PR description **must** include a **Manual UI QA** section the PM can follow without reading code.
+   - The section must contain:
+     - How to start the app (for the dashboard: `uv run uvicorn app.api.app:app --host 127.0.0.1 --port 8000`, then open `http://127.0.0.1:8000/dashboard`).
+     - Click-by-click steps (what to open, type, upload, or submit).
+     - What success looks like on screen (happy path).
+     - What a loud failure looks like on screen when the feature has a negative case (malformed upload, empty state, rejected input).
+   - If the change has **no** browser surface, write one line: `Manual UI QA: not applicable (no user-visible UI).`
+   - **Synthetic test data:** When the UI cannot be exercised on an empty database, the agent must generate synthetic data and tell the PM how to load it. Prefer a committed script (`uv run python scripts/seed_<feature>.py`) or a fixture under `tests/fixtures/`. Data must be obviously fake (masks like `*0000`, descriptions such as `SYNTHETIC Payroll`), integer cents only, and must not use real customer PDFs, account numbers, SSNs, or names. Do not invent SRI hashes or UUIDs for frontend assets; compute them or omit them.
+
 ---
 
 ## Agent-to-Agent Review Protocol
@@ -118,6 +128,7 @@ Before a pull request can be merged, the Reviewer Agent verifies:
 - [ ] **Mutation Testing (nightly on main):** Not a PR merge blocker. Confirm financial changes remain killable; nightly full-allowlist gate on `main` must stay green (`classic >= 55%`, `no_tests == 0`, zero survivors in `app/pipeline/validator.py`).
 - [ ] **Code Hygiene:** `uv run ruff check .` and `uv run ruff format --check .` pass with zero warnings.
 - [ ] **QA Deliverables:** Executable QA script (`scripts/qa_*.py`) exists, runs successfully, and demonstrates both positive and negative cases.
+- [ ] **Manual UI QA:** If the PR changes a browser-visible surface, the description has start command, click path, expected screen result, and (when needed) a synthetic seed the PM can load. Otherwise it states UI QA is not applicable.
 
 ### 3. Automated Review Gates
 - **GitHub Actions CI (`.github/workflows/ci.yml`):** Automatically executes linting, formatting check, and the 90% coverage test gate on all PRs and pushes to `main` (no mutmut on PRs).
@@ -136,6 +147,7 @@ To combine developer velocity with strict cloud validation, ASSASSIN utilizes a 
   - Operates locally to author canonical contracts and comprehensive TDD test suites (Red phase).
   - Implements contract-compliant business logic (Green phase) and refactors for static AST clarity (Refactor phase).
   - Authors executable QA verification scripts (`scripts/qa_<feature_name>.py`).
+  - For browser-visible features, writes Manual UI QA steps in the PR (and a synthetic seed script when the screen needs data).
   - Executes local pre-flight checks (`uv sync`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run pytest --cov=app --cov-fail-under=90 -v`, `uv run python scripts/agent_review.py`).
   - Commits changes and opens the Pull Request on GitHub.
 

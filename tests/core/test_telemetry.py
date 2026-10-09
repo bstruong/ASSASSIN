@@ -99,8 +99,35 @@ def test_configure_telemetry(monkeypatch):
 
 
 def test_trace_context_propagation():
-    """Placeholder: ensure trace_id and document_id propagate correctly."""
-    # TODO: Initialize mock tracer provider
-    # TODO: Start span with document_id="doc-999"
-    # TODO: Log message
-    # TODO: Assert log_dict["trace_id"] exists and matches active span
+    """Ensure the active span trace_id is copied onto the JSON log."""
+    from opentelemetry.sdk.trace import TracerProvider
+
+    provider = TracerProvider()
+    tracer = provider.get_tracer("test_telemetry")
+    logger = logging.getLogger("test_trace_context")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    log_capture = io.StringIO()
+    handler = logging.StreamHandler(log_capture)
+    handler.setFormatter(JSONFormatter())
+    logger.addHandler(handler)
+
+    try:
+        with tracer.start_as_current_span(
+            "document.process",
+            attributes={"document_id": "doc-999"},
+        ) as span:
+            logger.info(
+                "Processing document",
+                extra={"document_id": "doc-999"},
+            )
+            active_trace_id = format(span.get_span_context().trace_id, "032x")
+    finally:
+        logger.removeHandler(handler)
+        provider.shutdown()
+
+    log_dict = json.loads(log_capture.getvalue())
+    assert log_dict["document_id"] == "doc-999"
+    assert "trace_id" in log_dict
+    assert log_dict["trace_id"]
+    assert log_dict["trace_id"] == active_trace_id

@@ -12,7 +12,9 @@ Hierarchy::
     ├── SchemaDriftError       — extra / missing headers
     ├── MissingSectionError    — missing mandatory anchors
     ├── AmbiguousAccountsError — multi-account on single adapter
-    └── AdapterRegistryError   — 0 or 2+ adapter matches
+    ├── AdapterRegistryError   — 0 or 2+ adapter matches
+    └── PersistenceError       — relational invariant failure
+        └── MigrationError     — missing, unordered, or tampered migration
 """
 
 from __future__ import annotations
@@ -106,4 +108,15 @@ class PersistenceError(PipelineError):
     - Denormalized raw_payload_id contradicts extraction_run.
     - Statement opening or closing balance contradicts sidecar totals.
     - Foreign key or schema violation during persistence.
+    """
+
+
+class MigrationError(PersistenceError):
+    """A schema migration could not be applied safely.
+
+    Raised when:
+
+    - A migration file is missing.
+    - Version ids are not a contiguous sequence starting at 0001.
+    - A recorded checksum does not match the migration file.
     """

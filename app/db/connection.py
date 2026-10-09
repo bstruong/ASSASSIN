@@ -10,6 +10,8 @@ from pathlib import Path
 
 import psycopg
 
+from app.db.migrate import apply_migrations
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_DATABASE_URL = "postgresql://postgres:assassin@localhost:54329/assassin_test"
@@ -52,16 +54,15 @@ def get_db_connection(url: str | None = None) -> Iterator[psycopg.Connection]:
 
 
 def init_db(conn: psycopg.Connection | None = None, url: str | None = None) -> None:
-    """Initialize schema tables, constraints, and indexes from schema.sql."""
+    """Apply ordered schema migrations, using schema.sql as version 0001."""
     if not SCHEMA_PATH.is_file():
         raise FileNotFoundError(f"Schema file not found at {SCHEMA_PATH}")
 
-    ddl = SCHEMA_PATH.read_text(encoding="utf-8")
     if conn is not None:
-        logger.info("Executing schema DDL against provided connection")
-        conn.execute(ddl)
+        logger.info("Applying schema migrations on provided connection")
+        apply_migrations(conn, baseline_path=SCHEMA_PATH)
         conn.commit()
     else:
-        logger.info("Executing schema DDL against managed connection")
+        logger.info("Applying schema migrations on managed connection")
         with get_db_connection(url) as connection:
-            connection.execute(ddl)
+            apply_migrations(connection, baseline_path=SCHEMA_PATH)

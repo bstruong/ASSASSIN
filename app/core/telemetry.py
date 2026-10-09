@@ -6,15 +6,21 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
-# OpenTelemetry imports would go here:
-# from opentelemetry import trace
-# from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-# from opentelemetry.sdk.trace import TracerProvider
-# from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry import trace
+
 logger = logging.getLogger(__name__)
 
 
-logger = logging.getLogger(__name__)
+def _active_span_ids() -> tuple[str, str]:
+    """Return the current span's hex trace and span ids, or empty strings."""
+    span = trace.get_current_span()
+    span_context = span.get_span_context()
+    if not span_context.is_valid:
+        return "", ""
+    return (
+        trace.format_trace_id(span_context.trace_id),
+        trace.format_span_id(span_context.span_id),
+    )
 
 
 class JSONFormatter(logging.Formatter):
@@ -37,15 +43,17 @@ class JSONFormatter(logging.Formatter):
                 if k not in disallowed_keys:
                     safe_dict[k] = v
 
+        active_trace_id, active_span_id = _active_span_ids()
+        record_trace_id = getattr(record, "trace_id", "") or ""
+        record_span_id = getattr(record, "span_id", "") or ""
+
         log_obj: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
-            "trace_id": getattr(
-                record, "trace_id", ""
-            ),  # Injected by OTel LoggingInstrumentor
-            "span_id": getattr(record, "span_id", ""),
+            "trace_id": active_trace_id or record_trace_id,
+            "span_id": active_span_id or record_span_id,
             "context": safe_dict,
         }
 
